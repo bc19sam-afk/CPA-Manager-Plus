@@ -2,6 +2,15 @@ import axios from 'axios';
 import type { UsagePayload } from '@/features/monitoring/hooks/useUsageData';
 import { normalizeApiBase } from '@/utils/connection';
 import type { ModelPrice } from '@/utils/usage';
+import type {
+  CodexInspectionRunResponse,
+  CodexInspectionRunsQuery,
+  CodexInspectionRunsResponse,
+  CodexInspectionSchedulerStatus,
+  CodexInspectionTaskPayload,
+  CodexInspectionTaskResponse,
+  CodexInspectionTasksResponse,
+} from '@/types/codexInspectionTask';
 
 export interface UsageServiceInfo {
   service?: string;
@@ -213,6 +222,162 @@ export const usageServiceApi = {
       payload,
       {
         timeout: USAGE_SERVICE_TRANSFER_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+    return response.data;
+  },
+
+  getCodexInspectionTasks: async (
+    base: string,
+    managementKey?: string
+  ): Promise<CodexInspectionTasksResponse> => {
+    const response = await axios.get<CodexInspectionTasksResponse>(
+      buildUrl(base, '/v0/management/codex-inspection/tasks'),
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+    return response.data;
+  },
+
+  createCodexInspectionTask: async (
+    base: string,
+    payload: CodexInspectionTaskPayload,
+    managementKey?: string
+  ): Promise<CodexInspectionTaskResponse> => {
+    const response = await axios.post<CodexInspectionTaskResponse>(
+      buildUrl(base, '/v0/management/codex-inspection/tasks'),
+      payload,
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+    return response.data;
+  },
+
+  updateCodexInspectionTask: async (
+    base: string,
+    id: string,
+    payload: CodexInspectionTaskPayload,
+    managementKey?: string
+  ): Promise<CodexInspectionTaskResponse> => {
+    const response = await axios.put<CodexInspectionTaskResponse>(
+      buildUrl(base, `/v0/management/codex-inspection/tasks/${encodeURIComponent(id)}`),
+      payload,
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+    return response.data;
+  },
+
+  setCodexInspectionTaskEnabled: async (
+    base: string,
+    id: string,
+    enabled: boolean,
+    managementKey?: string
+  ): Promise<CodexInspectionTaskResponse> => {
+    const response = await axios.patch<CodexInspectionTaskResponse>(
+      buildUrl(base, `/v0/management/codex-inspection/tasks/${encodeURIComponent(id)}/enabled`),
+      { enabled },
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+    return response.data;
+  },
+
+  deleteCodexInspectionTask: async (
+    base: string,
+    id: string,
+    managementKey?: string
+  ): Promise<void> => {
+    await axios.delete(
+      buildUrl(base, `/v0/management/codex-inspection/tasks/${encodeURIComponent(id)}`),
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+  },
+
+  runCodexInspectionTask: async (
+    base: string,
+    id: string,
+    payload: { dryRunOverride?: boolean } = {},
+    managementKey?: string
+  ): Promise<CodexInspectionRunResponse> => {
+    const response = await axios.post<CodexInspectionRunResponse>(
+      buildUrl(base, `/v0/management/codex-inspection/tasks/${encodeURIComponent(id)}/runs`),
+      payload,
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+    return response.data;
+  },
+
+  getCodexInspectionRuns: async (
+    base: string,
+    query: CodexInspectionRunsQuery = {},
+    managementKey?: string
+  ): Promise<CodexInspectionRunsResponse> => {
+    const response = await axios.get<CodexInspectionRunsResponse>(
+      buildUrl(base, '/v0/management/codex-inspection/runs'),
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+        params: query,
+      }
+    );
+    return response.data;
+  },
+
+  getCodexInspectionRun: async (
+    base: string,
+    id: string,
+    managementKey?: string
+  ): Promise<CodexInspectionRunResponse> => {
+    const response = await axios.get<CodexInspectionRunResponse>(
+      buildUrl(base, `/v0/management/codex-inspection/runs/${encodeURIComponent(id)}`),
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+    return response.data;
+  },
+
+  testCodexInspectionNotification: async (
+    base: string,
+    payload: unknown,
+    managementKey?: string
+  ): Promise<Record<string, unknown>> => {
+    const response = await axios.post<Record<string, unknown>>(
+      buildUrl(base, '/v0/management/codex-inspection/notifications/test'),
+      payload,
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
+        headers: authHeaders(managementKey),
+      }
+    );
+    return response.data;
+  },
+
+  getCodexInspectionSchedulerStatus: async (
+    base: string,
+    managementKey?: string
+  ): Promise<CodexInspectionSchedulerStatus> => {
+    const response = await axios.get<CodexInspectionSchedulerStatus>(
+      buildUrl(base, '/v0/management/codex-inspection/scheduler/status'),
+      {
+        timeout: USAGE_SERVICE_TIMEOUT_MS,
         headers: authHeaders(managementKey),
       }
     );
