@@ -36,7 +36,7 @@ export interface CodexInspectionExecutionConfig {
 export type CodexInspectionAutoAction = 'none' | 'disable' | 'enable' | 'delete';
 
 export interface CodexInspectionAutoActionConfig {
-  dryRun: boolean;
+  dryRun?: boolean;
   zeroQuotaAction: Exclude<CodexInspectionAutoAction, 'delete'>;
   fullQuotaAction: Exclude<CodexInspectionAutoAction, 'delete'>;
   invalidAction: CodexInspectionAutoAction;
@@ -82,6 +82,8 @@ export interface CodexInspectionTask {
   id: string;
   name: string;
   description?: string;
+  note?: string;
+  createdBy?: string;
   enabled: boolean;
   targetScope: CodexInspectionTargetScope;
   schedule: CodexInspectionScheduleConfig;
@@ -100,6 +102,19 @@ export interface CodexInspectionTask {
   updatedAtMs: number;
 }
 
+export interface CodexInspectionRunSummary {
+  total?: number;
+  healthy?: number;
+  fullQuota?: number;
+  zeroQuota?: number;
+  probeFailed?: number;
+  invalid?: number;
+  disableCount?: number;
+  enableCount?: number;
+  deleteCount?: number;
+  [key: string]: number | undefined;
+}
+
 export interface CodexInspectionRun {
   id: string;
   taskId: string;
@@ -114,7 +129,7 @@ export interface CodexInspectionRun {
   executionSnapshot?: CodexInspectionExecutionConfig;
   autoActionSnapshot?: CodexInspectionAutoActionConfig;
   notificationSnapshot?: CodexInspectionNotificationConfig;
-  summary?: Record<string, unknown>;
+  summary?: CodexInspectionRunSummary;
   error?: string;
   createdAtMs: number;
 }
