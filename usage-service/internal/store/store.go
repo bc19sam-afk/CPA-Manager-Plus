@@ -145,6 +145,9 @@ func (s *Store) init() error {
 	if err := s.ensureUsageEventSnapshotColumns(); err != nil {
 		return err
 	}
+	if err := s.ensureCodexInspectionTables(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -623,6 +626,13 @@ func nullPositiveInt64(value int64) any {
 		return nil
 	}
 	return value
+}
+
+func nullFloat(value *float64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 func (s Setup) String() string {
