@@ -28,6 +28,14 @@ type APIKeyAlias = model.APIKeyAlias
 type Aggregate = usageevent.Aggregate
 type ModelStat = usageevent.ModelStat
 type RecentFailure = usageevent.RecentFailure
+type AnalyticsFilter = usageevent.AnalyticsFilter
+type TimelinePoint = usageevent.TimelinePoint
+type HourlyPoint = usageevent.HourlyPoint
+type ChannelModelStat = usageevent.ChannelModelStat
+type FailureSourceStat = usageevent.FailureSourceStat
+type TaskBucket = usageevent.TaskBucket
+type EventPageItem = usageevent.EventPageItem
+type EventsPage = usageevent.EventsPage
 
 type Store struct {
 	db *sql.DB
@@ -151,4 +159,44 @@ func (s *Store) ModelStatsBetween(ctx context.Context, fromMs, toMs int64) ([]Mo
 // RecentFailuresBetween returns the most recent failed events in window.
 func (s *Store) RecentFailuresBetween(ctx context.Context, fromMs, toMs int64, limit int) ([]RecentFailure, error) {
 	return s.UsageEvents.RecentFailuresBetween(ctx, fromMs, toMs, limit)
+}
+
+func (s *Store) AggregateWithFilter(ctx context.Context, filter AnalyticsFilter) (Aggregate, error) {
+	return s.UsageEvents.AggregateWithFilter(ctx, filter)
+}
+
+func (s *Store) ModelStatsWithFilter(ctx context.Context, filter AnalyticsFilter, limit int) ([]ModelStat, error) {
+	return s.UsageEvents.ModelStatsWithFilter(ctx, filter, limit)
+}
+
+func (s *Store) TimelineWithFilter(ctx context.Context, filter AnalyticsFilter, granularity string) ([]TimelinePoint, error) {
+	return s.UsageEvents.TimelineWithFilter(ctx, filter, granularity)
+}
+
+func (s *Store) HourlyDistributionWithFilter(ctx context.Context, filter AnalyticsFilter) ([]HourlyPoint, error) {
+	return s.UsageEvents.HourlyDistributionWithFilter(ctx, filter)
+}
+
+func (s *Store) ChannelModelStatsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]ChannelModelStat, error) {
+	return s.UsageEvents.ChannelModelStatsWithFilter(ctx, filter)
+}
+
+func (s *Store) FailureSourcesWithFilter(ctx context.Context, filter AnalyticsFilter) ([]FailureSourceStat, error) {
+	return s.UsageEvents.FailureSourcesWithFilter(ctx, filter)
+}
+
+func (s *Store) TaskBucketsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]TaskBucket, error) {
+	return s.UsageEvents.TaskBucketsWithFilter(ctx, filter)
+}
+
+func (s *Store) RecentFailuresWithFilter(ctx context.Context, filter AnalyticsFilter, limit int) ([]RecentFailure, error) {
+	return s.UsageEvents.RecentFailuresWithFilter(ctx, filter, limit)
+}
+
+func (s *Store) EventsPageWithFilter(ctx context.Context, filter AnalyticsFilter, beforeMS int64, limit int) (EventsPage, error) {
+	return s.UsageEvents.EventsPageWithFilter(ctx, filter, beforeMS, limit)
+}
+
+func (s *Store) ActiveDaysWithFilter(ctx context.Context, filter AnalyticsFilter) (int64, error) {
+	return s.UsageEvents.ActiveDaysWithFilter(ctx, filter)
 }

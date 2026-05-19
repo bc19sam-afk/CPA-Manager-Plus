@@ -10,6 +10,7 @@ import (
 	healthcontroller "github.com/seakee/cpa-manager-plus/usage-service/internal/http/controller/health"
 	managerconfigcontroller "github.com/seakee/cpa-manager-plus/usage-service/internal/http/controller/managerconfig"
 	modelpricecontroller "github.com/seakee/cpa-manager-plus/usage-service/internal/http/controller/modelprice"
+	monitoringcontroller "github.com/seakee/cpa-manager-plus/usage-service/internal/http/controller/monitoring"
 	panelcontroller "github.com/seakee/cpa-manager-plus/usage-service/internal/http/controller/panel"
 	proxycontroller "github.com/seakee/cpa-manager-plus/usage-service/internal/http/controller/proxy"
 	setupcontroller "github.com/seakee/cpa-manager-plus/usage-service/internal/http/controller/setup"
@@ -28,6 +29,7 @@ func New(appCtx *app.Context) http.Handler {
 	modelPriceHandler := &modelpricecontroller.Handler{App: appCtx}
 	apiKeyAliasHandler := &apikeyaliascontroller.Handler{App: appCtx}
 	dashboardHandler := &dashboardcontroller.Handler{App: appCtx}
+	monitoringHandler := &monitoringcontroller.Handler{App: appCtx}
 	proxyHandler := &proxycontroller.Handler{App: appCtx}
 	panelHandler := &panelcontroller.Handler{App: appCtx}
 
@@ -38,7 +40,7 @@ func New(appCtx *app.Context) http.Handler {
 	mux.HandleFunc("/usage-service/config", middleware.WithCORS(appCtx.Config, managerConfigHandler.Handle))
 	mux.HandleFunc("/setup", middleware.WithCORS(appCtx.Config, setupHandler.Setup))
 	mux.HandleFunc("/management.html", panelHandler.ManagementHTML)
-	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, modelPriceHandler, apiKeyAliasHandler, dashboardHandler, proxyHandler))
+	mux.HandleFunc("/", rootHandler(appCtx, usageHandler, modelPriceHandler, apiKeyAliasHandler, dashboardHandler, monitoringHandler, proxyHandler))
 
 	return middleware.Recovery(middleware.RequestLogger(mux))
 }
@@ -49,6 +51,7 @@ func rootHandler(
 	modelPriceHandler *modelpricecontroller.Handler,
 	apiKeyAliasHandler *apikeyaliascontroller.Handler,
 	dashboardHandler *dashboardcontroller.Handler,
+	monitoringHandler *monitoringcontroller.Handler,
 	proxyHandler *proxycontroller.Handler,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +70,10 @@ func rootHandler(
 		}
 		if strings.HasPrefix(r.URL.Path, "/v0/management/dashboard/") {
 			middleware.WithCORS(appCtx.Config, dashboardHandler.Handle)(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/v0/management/monitoring/") {
+			middleware.WithCORS(appCtx.Config, monitoringHandler.Handle)(w, r)
 			return
 		}
 		cleanUsagePath := strings.TrimRight(r.URL.Path, "/")

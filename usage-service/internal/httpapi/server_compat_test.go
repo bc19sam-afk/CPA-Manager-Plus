@@ -289,6 +289,45 @@ func TestServerCompatDashboardSummary(t *testing.T) {
 	}
 }
 
+func TestServerCompatMonitoringAnalytics(t *testing.T) {
+	cpa := testutil.NewCPAMock(t)
+	setup := &store.Setup{CPAUpstreamURL: cpa.URL(), ManagementKey: "management-key", Queue: "usage", PopSide: "right"}
+	handler, db := newCompatHandler(t, testutil.NewConfig(t), setup)
+	event := compatEvent("monitoring-analytics-event", 10)
+	_, err := db.InsertEvents(context.Background(), []usage.Event{event})
+	if err != nil {
+		t.Fatalf("insert event: %v", err)
+	}
+
+	unauthorizedRR := testutil.Request(t, handler, http.MethodPost, "/v0/management/monitoring/analytics", `{"from_ms":1778000000000,"to_ms":1778000060000}`, "")
+	testutil.RequireStatus(t, unauthorizedRR, http.StatusUnauthorized)
+
+	badRR := testutil.Request(t, handler, http.MethodPost, "/v0/management/monitoring/analytics", `{"from_ms":2,"to_ms":1}`, "management-key")
+	testutil.RequireStatus(t, badRR, http.StatusBadRequest)
+
+	body := `{"from_ms":1778000000000,"to_ms":1778000060000,"include":{"summary":true,"events_page":{"limit":10},"recent_failures":5}}`
+	rr := testutil.Request(t, handler, http.MethodPost, "/v0/management/monitoring/analytics", body, "management-key")
+	testutil.RequireStatus(t, rr, http.StatusOK)
+
+	var payload struct {
+		Summary *struct {
+			TotalCalls int64 `json:"total_calls"`
+		} `json:"summary"`
+		Events *struct {
+			Items []struct {
+				EventHash string `json:"event_hash"`
+			} `json:"items"`
+		} `json:"events"`
+	}
+	testutil.DecodeJSON(t, rr, &payload)
+	if payload.Summary == nil || payload.Summary.TotalCalls != 1 {
+		t.Fatalf("summary = %#v", payload.Summary)
+	}
+	if payload.Events == nil || len(payload.Events.Items) != 1 || payload.Events.Items[0].EventHash != "monitoring-analytics-event" {
+		t.Fatalf("events = %#v", payload.Events)
+	}
+}
+
 func TestServerCompatModelPricesAndAliases(t *testing.T) {
 	cpa := testutil.NewCPAMock(t)
 	setup := &store.Setup{CPAUpstreamURL: cpa.URL(), ManagementKey: "management-key", Queue: "usage", PopSide: "right"}
