@@ -11,7 +11,6 @@ import {
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select } from '@/components/ui/Select';
@@ -67,7 +66,6 @@ import {
   buildMonitoringAccountQuotaTargetsByAccount,
   type MonitoringAccountQuotaTarget,
 } from '@/features/monitoring/accountOverviewQuotaTargets';
-import { buildRealtimeSourceDisplay } from '@/features/monitoring/realtimeSourceDisplay';
 import {
   AccountExpandedDetails,
   AccountOverviewCard,
@@ -77,10 +75,9 @@ import {
 import { ApiKeySummaryPanel } from '@/features/monitoring/components/ApiKeySummaryPanel';
 import { MonitoringCustomRangeModal } from '@/features/monitoring/components/MonitoringCustomRangeModal';
 import { MonitoringPriceModal } from '@/features/monitoring/components/MonitoringPriceModal';
+import { RealtimeEventsPanel } from '@/features/monitoring/components/RealtimeEventsPanel';
 import {
   PaginationControls,
-  RecentPattern,
-  StatusBadge,
   SummaryCard,
   type SummaryCardProps,
 } from '@/features/monitoring/components/MonitoringShared';
@@ -102,7 +99,7 @@ import { useRequestMonitoringAvailability } from '@/hooks/useRequestMonitoringAv
 import { authFilesApi, requestCodexUsagePayload } from '@/services/api';
 import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
 import type { AuthFileItem, CodexUsagePayload } from '@/types';
-import { formatFileSize, maskSensitiveText } from '@/utils/format';
+import { formatFileSize } from '@/utils/format';
 import type { StatusBarData } from '@/utils/recentRequests';
 import { buildCodexQuotaWindowInfos, normalizePlanType } from '@/utils/quota';
 import {
@@ -136,7 +133,6 @@ const AUTO_REFRESH_OPTIONS = [
   { value: '300000', labelKey: 'monitoring.auto_refresh_5m' },
 ];
 
-const REALTIME_PAGE_SIZE_OPTIONS = [10, 50, 100, 150, 300] as const;
 const DEFAULT_ACCOUNT_PAGE_SIZE = ACCOUNT_OVERVIEW_TABLE_PAGE_SIZE_OPTIONS[0];
 const DEFAULT_REALTIME_PAGE_SIZE = 10;
 const MAX_USAGE_IMPORT_FILE_SIZE = 64 * 1024 * 1024;
@@ -257,11 +253,6 @@ const createPriceDraft = (price?: ModelPrice): PriceDraft => ({
 const parsePriceValue = (value: string) => {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-};
-
-const buildRealtimeMetaText = (row: MonitoringEventRow) => {
-  const text = `${row.endpointMethod} ${row.endpointPath}`.trim();
-  return maskSensitiveText(text || '-');
 };
 
 const buildAccountOptionLabel = (row: MonitoringAccountRow) => {
@@ -2073,158 +2064,24 @@ const EMPTY_ACCOUNT_AUTH_STATE: MonitoringAccountAuthState = {
         onPageSizeChange={handleApiKeyPageSizeChange}
       />
 
-      <MonitoringPanel
-        title={t('monitoring.realtime_table_title')}
-        subtitle={t('monitoring.realtime_table_desc')}
-        className={styles.realtimePanel}
-        extra={
-          <div className={`${styles.inlineMetrics} ${styles.realtimeHeaderActions}`}>
-            <span>{`${t('monitoring.log_rows')}: ${realtimeLogRows.length}`}</span>
-            <span>{`${t('monitoring.recent_failures')}: ${scopedFailureCount}`}</span>
-            <button
-              type="button"
-              className={[
-                styles.filterToggleChip,
-                failedOnlyActive ? styles.filterToggleChipActive : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              onClick={toggleFailedOnly}
-            >
-              {t('monitoring.filter_status_failed')}
-            </button>
-          </div>
-        }
-      >
-        <div className={styles.tableWrapper}>
-          <table className={`${styles.table} ${styles.realtimeTable}`}>
-            <thead>
-              <tr>
-                <th>{t('monitoring.column_type')}</th>
-                <th>{t('monitoring.column_model')}</th>
-                <th>{t('monitoring.recent_status')}</th>
-                <th>{t('monitoring.request_status')}</th>
-                <th>{t('monitoring.column_success_rate')}</th>
-                <th>{t('monitoring.total_calls')}</th>
-                <th>{t('monitoring.column_latency')}</th>
-                <th>{t('monitoring.column_time')}</th>
-                <th>{t('monitoring.this_call_usage')}</th>
-                <th>{t('monitoring.this_call_cost')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {realtimePagination.pageItems.map((row) => {
-                const sourceDisplay = buildRealtimeSourceDisplay(row, t);
-                return (
-                  <tr key={row.id} className={row.failed ? styles.logRowFailed : undefined}>
-                    <td>
-                      <div className={styles.logTypeCell}>
-                        <span
-                          className={[
-                            styles.logTypeIcon,
-                            row.failed ? styles.logTypeIconFailed : styles.logTypeIconSuccess,
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
-                          aria-hidden="true"
-                        />
-                        <div className={styles.primaryCell}>
-                          <span>{sourceDisplay.primary}</span>
-                          {sourceDisplay.meta ? <small>{sourceDisplay.meta}</small> : null}
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <div className={styles.primaryCell}>
-                        <span className={styles.monoCell}>{row.model}</span>
-                        <small className={styles.monoCell}>{buildRealtimeMetaText(row)}</small>
-                      </div>
-                    </td>
-                    <td>
-                      <div className={styles.recentStatusCell}>
-                        <RecentPattern pattern={row.recentPattern} variant="plain" />
-                      </div>
-                    </td>
-                    <td>
-                      <StatusBadge tone={row.failed ? 'bad' : 'good'}>
-                        {row.failed
-                          ? t('monitoring.result_failed')
-                          : t('monitoring.result_success')}
-                      </StatusBadge>
-                    </td>
-                    <td
-                      className={
-                        row.successRate >= 0.95
-                          ? styles.goodText
-                          : row.successRate >= 0.85
-                            ? styles.warnText
-                            : styles.badText
-                      }
-                    >
-                      {formatPercent(row.successRate)}
-                    </td>
-                    <td>{formatCompactNumber(row.requestCount)}</td>
-                    <td>
-                      <span
-                        className={
-                          row.latencyMs !== null && row.latencyMs >= 30000
-                            ? styles.badText
-                            : row.latencyMs !== null && row.latencyMs >= 15000
-                              ? styles.warnText
-                              : undefined
-                        }
-                      >
-                        {formatDurationMs(row.latencyMs, { locale: i18n.language })}
-                      </span>
-                    </td>
-                    <td>{new Date(row.timestampMs).toLocaleString(i18n.language)}</td>
-                    <td>
-                      <div className={styles.primaryCell}>
-                        <span>{formatCompactNumber(row.totalTokens)}</span>
-                        <small>{`I ${formatCompactNumber(row.inputTokens)} · O ${formatCompactNumber(row.outputTokens)} · C ${formatCompactNumber(row.cachedTokens)}`}</small>
-                      </div>
-                    </td>
-                    <td>{hasPrices ? formatUsd(row.totalCost) : '--'}</td>
-                  </tr>
-                );
-              })}
-              {realtimeLogRows.length === 0 ? (
-                <tr>
-                  <td colSpan={10}>{renderMonitoringEmptyState()}</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-        <PaginationControls
-          count={realtimeLogRows.length}
-          currentPage={realtimePagination.currentPage}
-          totalPages={realtimePagination.totalPages}
-          startItem={realtimePagination.startItem}
-          endItem={realtimePagination.endItem}
-          pageSize={realtimePageSize}
-          pageSizeOptions={REALTIME_PAGE_SIZE_OPTIONS}
-          onPageChange={setRealtimePage}
-          onPageSizeChange={handleRealtimePageSizeChange}
-          t={t}
-        />
-        {realtimeLogRows.length > 0 ? (
-          <div className={styles.loadMoreEventsBar}>
-            {eventsHasMore ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={loadMoreEvents}
-                disabled={eventsLoadingMore || overallLoading}
-              >
-                {eventsLoadingMore ? t('common.loading') : t('monitoring.load_more_events')}
-              </Button>
-            ) : (
-              <span>{t('monitoring.no_more_events')}</span>
-            )}
-          </div>
-        ) : null}
-      </MonitoringPanel>
+      <RealtimeEventsPanel
+        rows={realtimeLogRows}
+        pagination={realtimePagination}
+        pageSize={realtimePageSize}
+        scopedFailureCount={scopedFailureCount}
+        failedOnlyActive={failedOnlyActive}
+        eventsHasMore={eventsHasMore}
+        eventsLoadingMore={eventsLoadingMore}
+        overallLoading={overallLoading}
+        hasPrices={hasPrices}
+        locale={i18n.language}
+        emptyState={renderMonitoringEmptyState()}
+        t={t}
+        onToggleFailedOnly={toggleFailedOnly}
+        onPageChange={setRealtimePage}
+        onPageSizeChange={handleRealtimePageSizeChange}
+        onLoadMoreEvents={loadMoreEvents}
+      />
 
       <MonitoringCustomRangeModal
         open={isCustomRangeModalOpen}
