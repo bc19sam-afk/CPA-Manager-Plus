@@ -44,7 +44,6 @@ import {
 import {
   buildAccountRows,
   buildApiKeyRows,
-  buildMonitoringSummary,
   buildRealtimeMonitorRows,
   getRangeBounds,
   type MonitoringAccountModelSpendRow,
@@ -249,6 +248,17 @@ type PaginationControlsProps = {
 };
 
 const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
+
+const ensureSelectedOption = <T extends { value: string; label: string }>(
+  options: T[],
+  value: string,
+  label = value
+): T[] => {
+  if (!value || value === 'all' || options.some((option) => option.value === value)) {
+    return options;
+  }
+  return [...options, { value, label } as T];
+};
 
 const isUsageImportFile = (file: File) => {
   const normalizedName = file.name.toLowerCase();
@@ -2013,10 +2023,30 @@ export function MonitoringCenterPage() {
     importUsage,
   } = useUsageData({ loadUsageEvents: false });
 
+  const monitoringScopeFilters = useMemo(
+    () => ({
+      account: selectedAccount,
+      provider: selectedProvider,
+      model: selectedModel,
+      channel: selectedChannel,
+      apiKeyHash: selectedApiKeyHash,
+      status: selectedStatus,
+    }),
+    [
+      selectedAccount,
+      selectedApiKeyHash,
+      selectedChannel,
+      selectedModel,
+      selectedProvider,
+      selectedStatus,
+    ]
+  );
+
   const {
     loading: monitoringLoading,
     error: monitoringError,
     authFiles,
+    summary: monitoringSummary,
     filteredRows,
     lastRefreshedAt: monitoringLastRefreshedAt,
     refreshMeta,
@@ -2028,6 +2058,7 @@ export function MonitoringCenterPage() {
     customTimeRange,
     searchQuery: deferredSearch,
     searchApiKeyHash: deferredSearchApiKeyHash,
+    scopeFilters: monitoringScopeFilters,
   });
 
   const refreshAll = useCallback(async () => {
@@ -2092,52 +2123,68 @@ export function MonitoringCenterPage() {
   }, [accountOverviewMode, accountPageByMode.card, accountPageSizeByMode.card, accountSort]);
 
   const providerOptions = useMemo(
-    () => [
-      { value: 'all', label: t('monitoring.filter_all_providers') },
-      ...Array.from(new Set(filteredRows.map((row) => row.provider)))
-        .filter(Boolean)
-        .sort((left, right) => left.localeCompare(right))
-        .map((value) => ({ value, label: value })),
-    ],
-    [filteredRows, t]
+    () =>
+      ensureSelectedOption(
+        [
+          { value: 'all', label: t('monitoring.filter_all_providers') },
+          ...Array.from(new Set(filteredRows.map((row) => row.provider)))
+            .filter(Boolean)
+            .sort((left, right) => left.localeCompare(right))
+            .map((value) => ({ value, label: value })),
+        ],
+        selectedProvider
+      ),
+    [filteredRows, selectedProvider, t]
   );
 
   const accountOptionRows = useMemo(() => buildAccountRows(filteredRows), [filteredRows]);
 
   const accountOptions = useMemo(
-    () => [
-      { value: 'all', label: t('monitoring.filter_all_accounts') },
-      ...Array.from(
-        new Map(
-          accountOptionRows.map((row) => [row.account, buildAccountOptionLabel(row)])
-        ).entries()
-      )
-        .sort((left, right) => left[1].localeCompare(right[1]))
-        .map(([value, label]) => ({ value, label })),
-    ],
-    [accountOptionRows, t]
+    () =>
+      ensureSelectedOption(
+        [
+          { value: 'all', label: t('monitoring.filter_all_accounts') },
+          ...Array.from(
+            new Map(
+              accountOptionRows.map((row) => [row.account, buildAccountOptionLabel(row)])
+            ).entries()
+          )
+            .sort((left, right) => left[1].localeCompare(right[1]))
+            .map(([value, label]) => ({ value, label })),
+        ],
+        selectedAccount
+      ),
+    [accountOptionRows, selectedAccount, t]
   );
 
   const modelOptions = useMemo(
-    () => [
-      { value: 'all', label: t('monitoring.filter_all_models') },
-      ...Array.from(new Set(filteredRows.map((row) => row.model)))
-        .filter(Boolean)
-        .sort((left, right) => left.localeCompare(right))
-        .map((value) => ({ value, label: value })),
-    ],
-    [filteredRows, t]
+    () =>
+      ensureSelectedOption(
+        [
+          { value: 'all', label: t('monitoring.filter_all_models') },
+          ...Array.from(new Set(filteredRows.map((row) => row.model)))
+            .filter(Boolean)
+            .sort((left, right) => left.localeCompare(right))
+            .map((value) => ({ value, label: value })),
+        ],
+        selectedModel
+      ),
+    [filteredRows, selectedModel, t]
   );
 
   const channelOptions = useMemo(
-    () => [
-      { value: 'all', label: t('monitoring.filter_all_channels') },
-      ...Array.from(new Set(filteredRows.map((row) => row.channel)))
-        .filter(Boolean)
-        .sort((left, right) => left.localeCompare(right))
-        .map((value) => ({ value, label: value })),
-    ],
-    [filteredRows, t]
+    () =>
+      ensureSelectedOption(
+        [
+          { value: 'all', label: t('monitoring.filter_all_channels') },
+          ...Array.from(new Set(filteredRows.map((row) => row.channel)))
+            .filter(Boolean)
+            .sort((left, right) => left.localeCompare(right))
+            .map((value) => ({ value, label: value })),
+        ],
+        selectedChannel
+      ),
+    [filteredRows, selectedChannel, t]
   );
 
   const apiKeyOptions = useMemo(() => {
@@ -2147,13 +2194,17 @@ export function MonitoringCenterPage() {
       optionMap.set(row.apiKeyHash, row.apiKeyLabel || row.apiKeyMasked || row.apiKeyHash);
     });
 
-    return [
-      { value: 'all', label: t('monitoring.filter_all_api_keys') },
-      ...Array.from(optionMap.entries())
-        .sort((left, right) => left[1].localeCompare(right[1]))
-        .map(([value, label]) => ({ value, label })),
-    ];
-  }, [filteredRows, t]);
+    return ensureSelectedOption(
+      [
+        { value: 'all', label: t('monitoring.filter_all_api_keys') },
+        ...Array.from(optionMap.entries())
+          .sort((left, right) => left[1].localeCompare(right[1]))
+          .map(([value, label]) => ({ value, label })),
+      ],
+      selectedApiKeyHash,
+      selectedApiKeyHash
+    );
+  }, [filteredRows, selectedApiKeyHash, t]);
 
   const statusOptions = useMemo(
     () => [
@@ -2190,42 +2241,7 @@ export function MonitoringCenterPage() {
     return map;
   }, [authFiles]);
 
-  const scopedRows = useMemo(
-    () =>
-      filteredRows.filter((row) => {
-        if (selectedAccount !== 'all' && row.account !== selectedAccount) {
-          return false;
-        }
-        if (selectedProvider !== 'all' && row.provider !== selectedProvider) {
-          return false;
-        }
-        if (selectedModel !== 'all' && row.model !== selectedModel) {
-          return false;
-        }
-        if (selectedChannel !== 'all' && row.channel !== selectedChannel) {
-          return false;
-        }
-        if (selectedApiKeyHash !== 'all' && row.apiKeyHash !== selectedApiKeyHash) {
-          return false;
-        }
-        if (selectedStatus === 'success' && row.failed) {
-          return false;
-        }
-        if (selectedStatus === 'failed' && !row.failed) {
-          return false;
-        }
-        return true;
-      }),
-    [
-      filteredRows,
-      selectedAccount,
-      selectedApiKeyHash,
-      selectedChannel,
-      selectedModel,
-      selectedProvider,
-      selectedStatus,
-    ]
-  );
+  const scopedRows = filteredRows;
   const scopedStatsRows = useMemo(
     () => scopedRows.filter((row) => row.statsIncluded),
     [scopedRows]
@@ -2240,7 +2256,7 @@ export function MonitoringCenterPage() {
     [accountStatusBounds, i18n.language, t]
   );
 
-  const scopedSummary = useMemo(() => buildMonitoringSummary(scopedStatsRows), [scopedStatsRows]);
+  const scopedSummary = monitoringSummary;
   const accountRows = useMemo(() => buildAccountRows(scopedRows), [scopedRows]);
   const apiKeyRows = useMemo(() => buildApiKeyRows(scopedRows), [scopedRows]);
   const accountStatusDataByRowId = useMemo(
@@ -2332,7 +2348,7 @@ export function MonitoringCenterPage() {
     () => buildMonitoringAccountQuotaTargetsByAccount(accountRows, accountAuthStateByRowId),
     [accountAuthStateByRowId, accountRows]
   );
-  const scopedFailureCount = scopedRows.filter((row) => row.failed).length;
+  const scopedFailureCount = scopedSummary.failureCalls;
   const savedPriceEntries = useMemo(
     () => Object.entries(modelPrices).sort((left, right) => left[0].localeCompare(right[0])),
     [modelPrices]
@@ -3104,10 +3120,7 @@ export function MonitoringCenterPage() {
         </div>
 
         <div className={`${styles.actionGroup} ${styles.actionGroupNav}`}>
-          <Link
-            to="/codex-inspection"
-            className={`${styles.actionButton} ${styles.quickNavLink}`}
-          >
+          <Link to="/codex-inspection" className={`${styles.actionButton} ${styles.quickNavLink}`}>
             <IconChartLine size={16} />
             <span>{t('monitoring.codex_inspection_entry')}</span>
             <IconExternalLink size={14} />

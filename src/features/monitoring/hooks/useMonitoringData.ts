@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { authFilesApi } from '@/services/api/authFiles';
 import { apiClient } from '@/services/api/client';
-import type { ApiKeyAlias, MonitoringAnalyticsEventRow } from '@/services/api/usageService';
+import type {
+  ApiKeyAlias,
+  MonitoringAnalyticsChannelShareRow,
+  MonitoringAnalyticsEventRow,
+  MonitoringAnalyticsFailureSourceRow,
+  MonitoringAnalyticsFilters,
+  MonitoringAnalyticsHourlyPoint,
+  MonitoringAnalyticsModelShareRow,
+  MonitoringAnalyticsModelStat,
+  MonitoringAnalyticsRecentFailure,
+  MonitoringAnalyticsSummary,
+  MonitoringAnalyticsTaskBucketRow,
+  MonitoringAnalyticsTimelinePoint,
+} from '@/services/api/usageService';
 import type { AuthFileItem } from '@/types/authFile';
 import type { Config } from '@/types/config';
 import type { CredentialInfo } from '@/types/sourceInfo';
@@ -521,6 +534,16 @@ export interface UseMonitoringDataParams {
   customTimeRange?: MonitoringCustomTimeRange | null;
   searchQuery: string;
   searchApiKeyHash?: string;
+  scopeFilters?: MonitoringScopeFilters;
+}
+
+export interface MonitoringScopeFilters {
+  account?: string;
+  provider?: string;
+  model?: string;
+  channel?: string;
+  apiKeyHash?: string;
+  status?: 'all' | 'success' | 'failed';
 }
 
 export interface UseMonitoringDataReturn {
@@ -1018,8 +1041,8 @@ export const buildApiKeyRows = (rows: MonitoringEventRow[]): MonitoringApiKeyRow
   rows.forEach((row) => {
     const hasKnownApiKey = Boolean(
       row.apiKeyHash ||
-        (row.apiKeyLabel && row.apiKeyLabel !== '-') ||
-        (row.apiKeyMasked && row.apiKeyMasked !== '-')
+      (row.apiKeyLabel && row.apiKeyLabel !== '-') ||
+      (row.apiKeyMasked && row.apiKeyMasked !== '-')
     );
     const apiKeyGroupKey = hasKnownApiKey
       ? row.apiKeyHash || row.apiKeyLabel || row.apiKeyMasked
@@ -1620,6 +1643,291 @@ const buildFailureRows = (rows: MonitoringEventRow[]) =>
     .sort((left, right) => right.timestampMs - left.timestampMs)
     .slice(0, 8);
 
+const isActiveFilterValue = (value: string | null | undefined) =>
+  Boolean(value && value.trim() && value !== 'all');
+
+const shortHashLabel = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return '-';
+  return trimmed.length <= 12 ? trimmed : `${trimmed.slice(0, 6)}...${trimmed.slice(-4)}`;
+};
+
+const addAuthIndexConstraint = (
+  current: Set<string> | null,
+  values: Iterable<string>
+): Set<string> | null => {
+  const next = new Set(Array.from(values).map(normalizeAuthIndex).filter(Boolean) as string[]);
+  if (next.size === 0) return current;
+  if (current === null) return next;
+  return new Set(Array.from(current).filter((value) => next.has(value)));
+};
+
+const buildAnalyticsFilters = (
+  scopeFilters: MonitoringScopeFilters | undefined,
+  authMetaMap: Map<string, MonitoringAuthMeta>,
+  channels: MonitoringChannelMeta[]
+): MonitoringAnalyticsFilters => {
+  const filters: MonitoringAnalyticsFilters = {};
+  if (!scopeFilters) return filters;
+
+  if (isActiveFilterValue(scopeFilters.model)) {
+    filters.models = [scopeFilters.model!.trim()];
+  }
+  if (isActiveFilterValue(scopeFilters.apiKeyHash)) {
+    filters.api_key_hashes = [scopeFilters.apiKeyHash!.trim().toLowerCase()];
+  }
+  if (scopeFilters.status === 'success') {
+    filters.include_failed = false;
+  } else if (scopeFilters.status === 'failed') {
+    filters.failed_only = true;
+  }
+
+  let authIndices: Set<string> | null = null;
+  if (isActiveFilterValue(scopeFilters.account)) {
+    const account = scopeFilters.account!.trim();
+    authIndices = addAuthIndexConstraint(
+      authIndices,
+      Array.from(authMetaMap.entries())
+        .filter(([, meta]) => meta.account === account)
+        .map(([authIndex]) => authIndex)
+    );
+  }
+  if (isActiveFilterValue(scopeFilters.provider)) {
+    const provider = scopeFilters.provider!.trim();
+    authIndices = addAuthIndexConstraint(
+      authIndices,
+      Array.from(authMetaMap.entries())
+        .filter(([, meta]) => meta.provider === provider)
+        .map(([authIndex]) => authIndex)
+    );
+  }
+  if (isActiveFilterValue(scopeFilters.channel)) {
+    const channel = scopeFilters.channel!.trim();
+    authIndices = addAuthIndexConstraint(
+      authIndices,
+      channels.filter((item) => item.name === channel).flatMap((item) => item.authIndices)
+    );
+  }
+  if (authIndices && authIndices.size > 0) {
+    filters.auth_indices = Array.from(authIndices).sort();
+  }
+
+  return filters;
+};
+
+const buildSummaryFromAnalytics = (summary: MonitoringAnalyticsSummary): MonitoringSummary => ({
+  totalCalls: summary.total_calls,
+  successCalls: summary.success_calls,
+  failureCalls: summary.failure_calls,
+  successRate: summary.success_rate,
+  inputTokens: summary.input_tokens,
+  outputTokens: summary.output_tokens,
+  reasoningTokens: summary.reasoning_tokens,
+  cachedTokens: summary.cached_tokens,
+  totalTokens: summary.total_tokens,
+  totalCost: summary.total_cost,
+  averageLatencyMs: summary.average_latency_ms,
+  rpm30m: summary.rpm_30m,
+  tpm30m: summary.tpm_30m,
+  avgDailyRequests: summary.avg_daily_requests,
+  avgDailyTokens: summary.avg_daily_tokens,
+  approxTasks: summary.approx_tasks,
+  approxTaskFailures: summary.approx_task_failures,
+  approxTaskSuccessRate: summary.approx_task_success_rate,
+  zeroTokenCalls: summary.zero_token_calls,
+  zeroTokenModels: summary.zero_token_models,
+});
+
+const buildTimelineFromAnalytics = (
+  points: MonitoringAnalyticsTimelinePoint[],
+  granularity: 'hour' | 'day' | string
+): MonitoringTimelinePoint[] =>
+  points.map((point) => ({
+    label:
+      granularity === 'hour'
+        ? buildHourLabel(point.bucket_ms)
+        : buildDayLabel(buildLocalDayKey(point.bucket_ms)),
+    requests: point.calls,
+    tokens: point.tokens,
+    cost: 0,
+  }));
+
+const buildHourlyDistributionFromAnalytics = (
+  points: MonitoringAnalyticsHourlyPoint[]
+): MonitoringTimelinePoint[] => {
+  const buckets = Array.from({ length: 24 }, (_, hour) => ({
+    label: `${padNumber(hour)}:00`,
+    requests: 0,
+    tokens: 0,
+    cost: 0,
+  }));
+  points.forEach((point) => {
+    if (point.hour < 0 || point.hour > 23) return;
+    buckets[point.hour] = {
+      label: `${padNumber(point.hour)}:00`,
+      requests: point.calls,
+      tokens: point.tokens,
+      cost: 0,
+    };
+  });
+  return buckets;
+};
+
+const buildModelShareRowsFromAnalytics = (
+  rows: MonitoringAnalyticsModelShareRow[],
+  modelStats: MonitoringAnalyticsModelStat[] = []
+): MonitoringModelShareRow[] => {
+  const successRateByModel = new Map(modelStats.map((row) => [row.model, row.success_rate]));
+  return rows.map((row) => ({
+    model: row.model,
+    requests: row.calls,
+    totalTokens: row.tokens,
+    totalCost: row.cost,
+    successRate: successRateByModel.get(row.model) ?? 1,
+  }));
+};
+
+const buildModelRowsFromAnalytics = (rows: MonitoringAnalyticsModelStat[]): MonitoringModelRow[] =>
+  rows.map((row) => ({
+    model: row.model,
+    requests: row.calls,
+    failures: row.failure_calls,
+    successRate: row.success_rate,
+    totalTokens: row.total_tokens,
+    totalCost: row.cost,
+    averageLatencyMs: null,
+    sources: 0,
+    channels: 0,
+  }));
+
+const resolveChannelMeta = (
+  authIndex: string,
+  authMetaMap: Map<string, MonitoringAuthMeta>,
+  channelByAuthIndex: Map<string, MonitoringChannelMeta>
+) => {
+  const authMeta = authMetaMap.get(authIndex);
+  const channelMeta =
+    channelByAuthIndex.get(authIndex) ||
+    (authMeta?.authIndex ? channelByAuthIndex.get(authMeta.authIndex) : undefined);
+  return { authMeta, channelMeta };
+};
+
+const buildChannelRowsFromAnalytics = (
+  rows: MonitoringAnalyticsChannelShareRow[],
+  authMetaMap: Map<string, MonitoringAuthMeta>,
+  channelByAuthIndex: Map<string, MonitoringChannelMeta>
+): MonitoringChannelRow[] =>
+  rows
+    .map((row) => {
+      const authIndex = row.auth_index || '-';
+      const { authMeta, channelMeta } = resolveChannelMeta(
+        authIndex,
+        authMetaMap,
+        channelByAuthIndex
+      );
+      const label = channelMeta?.name || authMeta?.provider || authIndex;
+      return {
+        id: authIndex,
+        label,
+        host: channelMeta?.host || '-',
+        provider: authMeta?.provider || '-',
+        planTypes: authMeta?.planType && authMeta.planType !== '-' ? [authMeta.planType] : [],
+        disabled: channelMeta?.disabled || authMeta?.disabled || false,
+        authCount: authIndex === '-' ? 0 : 1,
+        modelCount: 0,
+        requests: row.calls,
+        failures: row.failure,
+        successRate: row.calls > 0 ? row.success / row.calls : 1,
+        totalTokens: row.tokens,
+        totalCost: row.cost,
+        averageLatencyMs: row.average_latency_ms,
+        authLabels: authMeta?.label ? [authMeta.label] : [],
+      } satisfies MonitoringChannelRow;
+    })
+    .sort((left, right) => right.requests - left.requests);
+
+const buildFailureSourceRowsFromAnalytics = (
+  rows: MonitoringAnalyticsFailureSourceRow[],
+  authMetaMap: Map<string, MonitoringAuthMeta>,
+  channelByAuthIndex: Map<string, MonitoringChannelMeta>
+): MonitoringFailureSourceRow[] =>
+  rows.map((row) => {
+    const { authMeta, channelMeta } = resolveChannelMeta(
+      row.auth_index || '-',
+      authMetaMap,
+      channelByAuthIndex
+    );
+    return {
+      id: `${row.source_hash || '-'}::${row.auth_index || '-'}`,
+      label: shortHashLabel(row.source_hash),
+      channel: channelMeta?.name || authMeta?.provider || row.auth_index || '-',
+      failures: row.failure,
+      totalRequests: row.calls,
+      failureRate: row.calls > 0 ? row.failure / row.calls : 0,
+      lastSeenAt: row.last_seen_ms,
+      averageLatencyMs: row.average_latency_ms,
+    };
+  });
+
+const buildTaskBucketsFromAnalytics = (
+  rows: MonitoringAnalyticsTaskBucketRow[],
+  authMetaMap: Map<string, MonitoringAuthMeta>,
+  authFileMap: Map<string, CredentialInfo>,
+  sourceInfoMap: ReturnType<typeof buildSourceInfoMap>,
+  channelByAuthIndex: Map<string, MonitoringChannelMeta>
+): MonitoringTaskBucketRow[] =>
+  rows.map((row) => {
+    const authIndex = normalizeAuthIndex(row.auth_index) ?? '-';
+    const authMeta = authMetaMap.get(authIndex);
+    const sourceMeta = resolveSourceDisplay(row.source, authIndex, sourceInfoMap, authFileMap);
+    const { channelMeta } = resolveChannelMeta(authIndex, authMetaMap, channelByAuthIndex);
+    const sourceLabel =
+      authMeta?.label || sourceMeta.displayName || shortHashLabel(row.source_hash);
+    return {
+      id: row.bucket_key,
+      timestampMs: row.first_ms,
+      timestamp: new Date(row.first_ms).toISOString(),
+      source: sourceLabel,
+      sourceMasked: maskEmailLike(sourceLabel),
+      channel: channelMeta?.name || authMeta?.provider || sourceMeta.type || '-',
+      authLabel: authMeta?.label || sourceLabel,
+      planType: authMeta?.planType || '-',
+      calls: row.total,
+      failedCalls: row.failure,
+      failed: row.failure > 0,
+      modelsText: joinUnique(row.models, 3),
+      totalTokens: row.total_tokens,
+      totalCost: 0,
+      averageLatencyMs: row.average_latency_ms,
+      maxLatencyMs: row.max_latency_ms,
+      endpointsText: joinUnique(row.endpoints, 2),
+    };
+  });
+
+const buildFailureRowsFromAnalytics = (
+  rows: MonitoringAnalyticsRecentFailure[],
+  authMetaMap: Map<string, MonitoringAuthMeta>,
+  channelByAuthIndex: Map<string, MonitoringChannelMeta>
+): MonitoringFailureRow[] =>
+  rows.map((row) => {
+    const authIndex = normalizeAuthIndex(row.auth_index) ?? '-';
+    const { authMeta, channelMeta } = resolveChannelMeta(
+      authIndex,
+      authMetaMap,
+      channelByAuthIndex
+    );
+    return {
+      id: `${row.timestamp_ms}-${row.source_hash}-${row.api_key_hash}-${row.model}`,
+      timestampMs: row.timestamp_ms,
+      timestamp: new Date(row.timestamp_ms).toISOString(),
+      model: row.model,
+      source: shortHashLabel(row.source_hash || row.api_key_hash),
+      channel: channelMeta?.name || authMeta?.provider || '-',
+      authIndex: maskAuthIndex(authIndex),
+      latencyMs: row.duration_ms,
+    };
+  });
+
 const buildUsageDetailsFromAnalyticsEvents = (
   items: MonitoringAnalyticsEventRow[] = []
 ): UsageDetailWithEndpoint[] =>
@@ -1835,6 +2143,7 @@ export function useMonitoringData({
   customTimeRange,
   searchQuery,
   searchApiKeyHash,
+  scopeFilters,
 }: UseMonitoringDataParams): UseMonitoringDataReturn {
   const [authFiles, setAuthFiles] = useState<AuthFileItem[]>([]);
   const [channels, setChannels] = useState<MonitoringChannelMeta[]>([]);
@@ -1850,19 +2159,6 @@ export function useMonitoringData({
       endMs: Math.max(bounds.endMs, 1),
     };
   }, [analyticsNowMs, customTimeRange, timeRange]);
-
-  const analytics = useMonitoringAnalytics({
-    fromMs: analyticsBounds?.startMs,
-    toMs: analyticsBounds?.endMs,
-    nowMs: analyticsNowMs,
-    searchQuery,
-    searchApiKeyHash,
-    include: {
-      summary: true,
-      events_page: { limit: 50000 },
-    },
-    throttleMs: 1_000,
-  });
 
   const refreshMeta = useCallback(
     async (showLoading: boolean = true) => {
@@ -1951,6 +2247,39 @@ export function useMonitoringData({
     return buildApiKeyDisplayMap(config?.apiKeys || [], apiKeyAliases || []);
   }, [apiKeyAliases, config?.apiKeys]);
 
+  const analyticsFilters = useMemo(
+    () => buildAnalyticsFilters(scopeFilters, authMetaMap, channels),
+    [authMetaMap, channels, scopeFilters]
+  );
+
+  const analyticsGranularity = useMemo(
+    () => (shouldUseHourlyTimeline(timeRange, customTimeRange) ? 'hour' : 'day'),
+    [customTimeRange, timeRange]
+  );
+
+  const analytics = useMonitoringAnalytics({
+    fromMs: analyticsBounds?.startMs,
+    toMs: analyticsBounds?.endMs,
+    nowMs: analyticsNowMs,
+    searchQuery,
+    searchApiKeyHash,
+    filters: analyticsFilters,
+    include: {
+      summary: true,
+      timeline: true,
+      hourly_distribution: true,
+      model_share: true,
+      channel_share: true,
+      model_stats: true,
+      failure_sources: true,
+      task_buckets: true,
+      recent_failures: 8,
+      events_page: { limit: 50000 },
+      granularity: analyticsGranularity,
+    },
+    throttleMs: 1_000,
+  });
+
   const allRows = useMemo(() => {
     const details = analytics.data
       ? buildUsageDetailsFromAnalyticsEvents(analytics.data.events?.items ?? [])
@@ -1982,18 +2311,98 @@ export function useMonitoringData({
   );
   const statsRows = useMemo(() => filteredRows.filter(shouldIncludeInStats), [filteredRows]);
 
-  const summary = useMemo(() => buildMonitoringSummary(statsRows), [statsRows]);
-  const timelineData = useMemo(
-    () => buildTimeline(statsRows, timeRange, customTimeRange),
-    [customTimeRange, statsRows, timeRange]
+  const summary = useMemo(
+    () =>
+      analytics.data?.summary
+        ? buildSummaryFromAnalytics(analytics.data.summary)
+        : buildMonitoringSummary(statsRows),
+    [analytics.data?.summary, statsRows]
   );
-  const hourlyDistribution = useMemo(() => buildHourlyDistribution(statsRows), [statsRows]);
-  const modelShareRows = useMemo(() => buildModelShareRows(statsRows), [statsRows]);
-  const channelRows = useMemo(() => buildChannelRows(statsRows), [statsRows]);
-  const modelRows = useMemo(() => buildModelRows(statsRows), [statsRows]);
-  const failureSourceRows = useMemo(() => buildFailureSourceRows(statsRows), [statsRows]);
-  const taskBuckets = useMemo(() => buildTaskBuckets(statsRows), [statsRows]);
-  const recentFailures = useMemo(() => buildFailureRows(statsRows), [statsRows]);
+  const timelineData = useMemo(
+    () =>
+      analytics.data?.timeline
+        ? {
+            granularity:
+              analytics.data.granularity === 'hour' ? ('hour' as const) : ('day' as const),
+            points: buildTimelineFromAnalytics(analytics.data.timeline, analytics.data.granularity),
+          }
+        : buildTimeline(statsRows, timeRange, customTimeRange),
+    [analytics.data?.granularity, analytics.data?.timeline, customTimeRange, statsRows, timeRange]
+  );
+  const hourlyDistribution = useMemo(
+    () =>
+      analytics.data?.hourly_distribution
+        ? buildHourlyDistributionFromAnalytics(analytics.data.hourly_distribution)
+        : buildHourlyDistribution(statsRows),
+    [analytics.data?.hourly_distribution, statsRows]
+  );
+  const modelShareRows = useMemo(
+    () =>
+      analytics.data?.model_share
+        ? buildModelShareRowsFromAnalytics(analytics.data.model_share, analytics.data.model_stats)
+        : buildModelShareRows(statsRows),
+    [analytics.data?.model_share, analytics.data?.model_stats, statsRows]
+  );
+  const channelRows = useMemo(
+    () =>
+      analytics.data?.channel_share
+        ? buildChannelRowsFromAnalytics(
+            analytics.data.channel_share,
+            authMetaMap,
+            channelByAuthIndex
+          )
+        : buildChannelRows(statsRows),
+    [analytics.data?.channel_share, authMetaMap, channelByAuthIndex, statsRows]
+  );
+  const modelRows = useMemo(
+    () =>
+      analytics.data?.model_stats
+        ? buildModelRowsFromAnalytics(analytics.data.model_stats)
+        : buildModelRows(statsRows),
+    [analytics.data?.model_stats, statsRows]
+  );
+  const failureSourceRows = useMemo(
+    () =>
+      analytics.data?.failure_sources
+        ? buildFailureSourceRowsFromAnalytics(
+            analytics.data.failure_sources,
+            authMetaMap,
+            channelByAuthIndex
+          )
+        : buildFailureSourceRows(statsRows),
+    [analytics.data?.failure_sources, authMetaMap, channelByAuthIndex, statsRows]
+  );
+  const taskBuckets = useMemo(
+    () =>
+      analytics.data?.task_buckets
+        ? buildTaskBucketsFromAnalytics(
+            analytics.data.task_buckets,
+            authMetaMap,
+            authFileMap,
+            sourceInfoMap,
+            channelByAuthIndex
+          )
+        : buildTaskBuckets(statsRows),
+    [
+      analytics.data?.task_buckets,
+      authFileMap,
+      authMetaMap,
+      channelByAuthIndex,
+      sourceInfoMap,
+      statsRows,
+    ]
+  );
+  const recentFailures = useMemo(
+    () =>
+      analytics.data?.recent_failures
+        ? buildFailureRowsFromAnalytics(
+            analytics.data.recent_failures,
+            authMetaMap,
+            channelByAuthIndex
+          )
+        : buildFailureRows(statsRows),
+    [analytics.data?.recent_failures, authMetaMap, channelByAuthIndex, statsRows]
+  );
 
   const metadata = useMemo<MonitoringMetadata>(() => {
     const planTypes = Array.from(

@@ -217,6 +217,7 @@ export interface MonitoringAnalyticsFilters {
   api_key_hashes?: string[];
   source_hashes?: string[];
   include_failed?: boolean;
+  failed_only?: boolean;
   exclude_zero_token?: boolean;
 }
 
@@ -414,7 +415,8 @@ export const LEGACY_USAGE_SERVICE_LAST_CPA_BASE_KEYS = [
 
 export const isUsageServiceId = (service?: string): boolean =>
   service === USAGE_SERVICE_ID ||
-  (typeof service === 'string' && (LEGACY_USAGE_SERVICE_IDS as readonly string[]).includes(service));
+  (typeof service === 'string' &&
+    (LEGACY_USAGE_SERVICE_IDS as readonly string[]).includes(service));
 
 export const normalizeUsageServiceBase = (input: string): string => normalizeApiBase(input);
 
