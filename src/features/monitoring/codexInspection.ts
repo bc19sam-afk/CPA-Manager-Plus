@@ -26,6 +26,11 @@ import {
   inspectSingleAccount,
   toInspectionAccount,
 } from '@/features/monitoring/model/codexInspectionProbe';
+import {
+  buildProgressSummary,
+  buildSummary,
+  createProgressSnapshot,
+} from '@/features/monitoring/model/codexInspectionProgress';
 
 export {
   CODEX_INSPECTION_AUTO_ACTION_MODES,
@@ -261,93 +266,6 @@ const pickSample = <T>(items: T[], sampleSize: number): T[] => {
     [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
   }
   return shuffled.slice(0, sampleSize);
-};
-
-const createEmptyProgressSummary = (): CodexInspectionProgressSummary => ({
-  totalFiles: 0,
-  probeSetCount: 0,
-  sampledCount: 0,
-  deleteCount: 0,
-  disableCount: 0,
-  enableCount: 0,
-  keepCount: 0,
-});
-
-const buildProgressSummary = (
-  files: AuthFileItem[],
-  probeSet: CodexInspectionAccount[],
-  sampledAccounts: CodexInspectionAccount[],
-  results: CodexInspectionResultItem[]
-): CodexInspectionProgressSummary => {
-  const deleteCount = results.filter((item) => item.action === 'delete').length;
-  const disableCount = results.filter((item) => item.action === 'disable').length;
-  const enableCount = results.filter((item) => item.action === 'enable').length;
-  const keepCount = results.length - deleteCount - disableCount - enableCount;
-
-  return {
-    totalFiles: files.length,
-    probeSetCount: probeSet.length,
-    sampledCount: sampledAccounts.length,
-    deleteCount,
-    disableCount,
-    enableCount,
-    keepCount,
-  };
-};
-
-const createProgressSnapshot = (
-  total: number,
-  completed: number,
-  inFlight: number,
-  status: CodexInspectionProgressStatus,
-  startedAt: number,
-  updatedAt: number = Date.now(),
-  summary: CodexInspectionProgressSummary = createEmptyProgressSummary()
-): CodexInspectionProgressSnapshot => {
-  const pending = Math.max(0, total - completed - inFlight);
-
-  return {
-    total,
-    completed,
-    inFlight,
-    pending,
-    percent: total <= 0 ? 0 : Math.round((Math.min(total, completed) / total) * 100),
-    status,
-    summary,
-    startedAt,
-    updatedAt,
-  };
-};
-
-const buildSummary = (
-  files: AuthFileItem[],
-  sampledAccounts: CodexInspectionAccount[],
-  results: CodexInspectionResultItem[],
-  settings: CodexInspectionSettings
-): CodexInspectionSummary => {
-  const deleteCount = results.filter((item) => item.action === 'delete').length;
-  const disableCount = results.filter((item) => item.action === 'disable').length;
-  const enableCount = results.filter((item) => item.action === 'enable').length;
-  const keepCount = results.length - deleteCount - disableCount - enableCount;
-  const preview = results
-    .filter((item) => item.action !== 'keep')
-    .slice(0, 10)
-    .map((item) => `${item.displayAccount} -> ${item.action}`);
-
-  return {
-    totalFiles: files.length,
-    probeSetCount: sampledAccounts.length,
-    sampledCount: results.length,
-    disabledCount: sampledAccounts.filter((item) => item.disabled).length,
-    enabledCount: sampledAccounts.filter((item) => !item.disabled).length,
-    deleteCount,
-    disableCount,
-    enableCount,
-    keepCount,
-    usedPercentThreshold: settings.usedPercentThreshold,
-    sampled: settings.sampleSize > 0 && settings.sampleSize < sampledAccounts.length,
-    plannedActionPreview: preview,
-  };
 };
 
 export const resolveCodexInspectionSettings = (
