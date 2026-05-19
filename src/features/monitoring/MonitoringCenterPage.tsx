@@ -7,10 +7,8 @@ import {
   useState,
   type ChangeEvent,
 } from 'react';
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import {
   buildAccountRows,
   buildApiKeyRows,
@@ -55,6 +53,7 @@ import { MonitoringActionBar } from '@/features/monitoring/components/Monitoring
 import { MonitoringCustomRangeModal } from '@/features/monitoring/components/MonitoringCustomRangeModal';
 import { MonitoringFiltersPanel } from '@/features/monitoring/components/MonitoringFiltersPanel';
 import { MonitoringPriceModal } from '@/features/monitoring/components/MonitoringPriceModal';
+import { MonitoringStatusHeader } from '@/features/monitoring/components/MonitoringStatusHeader';
 import { RealtimeEventsPanel } from '@/features/monitoring/components/RealtimeEventsPanel';
 import {
   SummaryCard,
@@ -1453,49 +1452,19 @@ export function MonitoringCenterPage() {
 
   return (
     <div className={styles.page}>
-      {overallLoading && filteredRows.length === 0 ? (
-        <div className={styles.loadingOverlay} aria-busy="true">
-          <div className={styles.loadingOverlayContent}>
-            <LoadingSpinner size={28} />
-            <span>{t('common.loading')}</span>
-          </div>
-        </div>
-      ) : null}
-
-      <div className={styles.headerShell}>
-        <div className={styles.statusBar}>
-          <span className={`${styles.statusBadge} ${styles[`tone${connectionTone}`]}`}>
-            <span className={styles.statusDot} aria-hidden="true" />
-            {connectionLabel}
-          </span>
-          <div className={styles.statusMeta}>
-            <span>
-              {t('monitoring.last_sync')}:{' '}
-              {monitoringLastRefreshedAt
-                ? monitoringLastRefreshedAt.toLocaleTimeString(i18n.language)
-                : '--'}
-            </span>
-            <span className={scopedFailureCount > 0 ? styles.statusMetaWarn : undefined}>
-              {`${t('monitoring.recent_failures')}: ${scopedFailureCount}`}
-            </span>
-            <span>{`${t('monitoring.total_calls')}: ${formatCompactNumber(scopedSummary.totalCalls)}`}</span>
-          </div>
-        </div>
-      </div>
-
-      {monitoringUnavailable ? (
-        <div className={styles.callout}>
-          <strong>{monitoringUnavailableTitle}</strong>
-          <span>{monitoringUnavailableBody}</span>
-          <Link
-            to="/config"
-            className={styles.configLink}
-            onClick={() => localStorage.setItem('config-management:tab', 'manager')}
-          >
-            {t('monitoring.open_manager_config')}
-          </Link>
-        </div>
-      ) : null}
+      <MonitoringStatusHeader
+        showLoadingOverlay={overallLoading && filteredRows.length === 0}
+        connectionTone={connectionTone}
+        connectionLabel={connectionLabel}
+        lastRefreshedAt={monitoringLastRefreshedAt}
+        locale={i18n.language}
+        scopedFailureCount={scopedFailureCount}
+        totalCalls={scopedSummary.totalCalls}
+        monitoringUnavailable={monitoringUnavailable}
+        monitoringUnavailableTitle={monitoringUnavailableTitle}
+        monitoringUnavailableBody={monitoringUnavailableBody}
+        t={t}
+      />
 
       <MonitoringActionBar
         usageTransferAvailable={usageTransferAvailable}
