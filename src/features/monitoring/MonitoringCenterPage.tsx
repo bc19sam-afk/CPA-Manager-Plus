@@ -54,11 +54,9 @@ import { MonitoringCustomRangeModal } from '@/features/monitoring/components/Mon
 import { MonitoringFiltersPanel } from '@/features/monitoring/components/MonitoringFiltersPanel';
 import { MonitoringPriceModal } from '@/features/monitoring/components/MonitoringPriceModal';
 import { MonitoringStatusHeader } from '@/features/monitoring/components/MonitoringStatusHeader';
+import { MonitoringSummarySection } from '@/features/monitoring/components/MonitoringSummarySection';
 import { RealtimeEventsPanel } from '@/features/monitoring/components/RealtimeEventsPanel';
-import {
-  SummaryCard,
-  type SummaryCardProps,
-} from '@/features/monitoring/components/MonitoringShared';
+import type { SummaryCardProps } from '@/features/monitoring/components/MonitoringShared';
 import {
   formatPercent,
   type AccountQuotaEntry,
@@ -1512,18 +1510,10 @@ export function MonitoringCenterPage() {
         onClearFilters={clearFilters}
       />
 
-      <section className={styles.summarySection}>
-        <div className={styles.summaryHero}>
-          {primarySummaryCards.map((card) => (
-            <SummaryCard key={card.label} {...card} />
-          ))}
-        </div>
-        <div className={styles.summarySub}>
-          {secondarySummaryCards.map((card) => (
-            <SummaryCard key={card.label} {...card} />
-          ))}
-        </div>
-      </section>
+      <MonitoringSummarySection
+        primaryCards={primarySummaryCards}
+        secondaryCards={secondarySummaryCards}
+      />
 
       <AccountOverviewPanel
         mode={accountOverviewMode}
