@@ -294,7 +294,7 @@ func NormalizePopSide(value string, fallback string) string {
 
 func CollectorMode(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "http", "resp":
+	case "http", "resp", "subscribe":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return "auto"

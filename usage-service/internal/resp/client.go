@@ -14,10 +14,13 @@ import (
 )
 
 type Client struct {
-	conn    net.Conn
-	reader  *bufio.Reader
-	timeout time.Duration
+	conn       net.Conn
+	reader     *bufio.Reader
+	timeout    time.Duration
+	subscribed bool
 }
+
+var ErrUnsupportedSubscribe = errors.New("RESP server does not support SUBSCRIBE")
 
 func Dial(rawURL string, skipTLSVerify bool) (*Client, error) {
 	upstream, err := parseURL(rawURL)
@@ -103,6 +106,9 @@ func (c *Client) Do(args ...string) (any, error) {
 	if c == nil || c.conn == nil {
 		return nil, errors.New("RESP client is closed")
 	}
+	if c.subscribed {
+		return nil, errors.New("RESP client is in subscribe mode")
+	}
 	if err := c.conn.SetDeadline(time.Now().Add(c.timeout)); err != nil {
 		return nil, err
 	}
@@ -110,6 +116,100 @@ func (c *Client) Do(args ...string) (any, error) {
 		return nil, err
 	}
 	return c.readValue()
+}
+
+func (c *Client) Subscribe(channel string) error {
+	if c == nil || c.conn == nil {
+		return errors.New("RESP client is closed")
+	}
+	if c.subscribed {
+		return errors.New("RESP client is already in subscribe mode")
+	}
+	if err := c.conn.SetDeadline(time.Now().Add(c.timeout)); err != nil {
+		return err
+	}
+	if _, err := c.conn.Write(encodeCommand([]string{"SUBSCRIBE", channel})); err != nil {
+		return err
+	}
+	value, err := c.readValue()
+	if err != nil {
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "unknown command") || strings.Contains(lower, "unsupported") {
+			return ErrUnsupportedSubscribe
+		}
+		return err
+	}
+	frame, ok := value.([]any)
+	if !ok || len(frame) < 3 {
+		return fmt.Errorf("unexpected SUBSCRIBE response: %v", value)
+	}
+	kind, _ := frame[0].(string)
+	name, _ := frame[1].(string)
+	if !strings.EqualFold(kind, "subscribe") || name != channel {
+		return fmt.Errorf("unexpected SUBSCRIBE response: %v", value)
+	}
+	c.subscribed = true
+	return c.conn.SetDeadline(time.Time{})
+}
+
+func (c *Client) ReadMessage() (string, string, error) {
+	if c == nil || c.conn == nil {
+		return "", "", errors.New("RESP client is closed")
+	}
+	if !c.subscribed {
+		return "", "", errors.New("RESP client is not in subscribe mode")
+	}
+	for {
+		value, err := c.readValue()
+		if err != nil {
+			return "", "", err
+		}
+		switch frame := value.(type) {
+		case []any:
+			if len(frame) == 0 {
+				continue
+			}
+			kind, _ := frame[0].(string)
+			switch strings.ToLower(kind) {
+			case "message":
+				if len(frame) < 3 {
+					return "", "", fmt.Errorf("invalid message frame: %v", frame)
+				}
+				channel, _ := frame[1].(string)
+				payload, _ := frame[2].(string)
+				return channel, payload, nil
+			case "subscribe", "unsubscribe", "pong":
+				continue
+			default:
+				return "", "", fmt.Errorf("unsupported subscribe frame: %v", frame)
+			}
+		case string:
+			if strings.EqualFold(frame, "PONG") {
+				continue
+			}
+			return "", "", fmt.Errorf("unexpected RESP value: %q", frame)
+		default:
+			return "", "", fmt.Errorf("unexpected RESP frame type: %T", frame)
+		}
+	}
+}
+
+func (c *Client) SendSubscribePing() error {
+	if c == nil || c.conn == nil {
+		return errors.New("RESP client is closed")
+	}
+	if !c.subscribed {
+		return errors.New("RESP client is not in subscribe mode")
+	}
+	_, err := c.conn.Write(encodeCommand([]string{"PING"}))
+	return err
+}
+
+func (c *Client) SetReadDeadline(t time.Time) error {
+	if c == nil || c.conn == nil {
+		return errors.New("RESP client is closed")
+	}
+	return c.conn.SetReadDeadline(t)
 }
 
 func encodeCommand(args []string) []byte {
