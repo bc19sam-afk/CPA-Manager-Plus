@@ -6,12 +6,13 @@ import (
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/apikeyalias"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/codexinspection"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/deadletter"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/modelprice"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/setting"
 	sqliterepo "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/sqlite"
-	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/security"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageevent"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/security"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
 )
 
@@ -21,11 +22,19 @@ type AdminCredential = model.AdminCredential
 type BootstrapState = model.BootstrapState
 type ManagerCPAConnectionConfig = model.ManagerCPAConnectionConfig
 type ManagerCollectorConfig = model.ManagerCollectorConfig
+type ManagerCodexInspectionConfig = model.ManagerCodexInspectionConfig
+type ManagerCodexInspectionScheduleConfig = model.ManagerCodexInspectionScheduleConfig
 type ManagerExternalUsageServiceConfig = model.ManagerExternalUsageServiceConfig
+type CodexInspectionRun = model.CodexInspectionRun
+type CodexInspectionResult = model.CodexInspectionResult
+type CodexInspectionLog = model.CodexInspectionLog
 type InsertResult = model.InsertResult
 type ModelPrice = model.ModelPrice
 type ModelPriceSyncResult = model.ModelPriceSyncResult
 type APIKeyAlias = model.APIKeyAlias
+
+var DefaultCodexInspectionConfig = model.DefaultCodexInspectionConfig
+var NormalizeCodexInspectionConfig = model.NormalizeCodexInspectionConfig
 
 // Aggregation result types re-exported for service-layer consumers.
 type Aggregate = usageevent.Aggregate
@@ -43,11 +52,12 @@ type EventsPage = usageevent.EventsPage
 type Store struct {
 	db *sql.DB
 
-	Settings      setting.Repository
-	UsageEvents   usageevent.Repository
-	DeadLetters   deadletter.Repository
-	ModelPrices   modelprice.Repository
-	APIKeyAliases apikeyalias.Repository
+	Settings         setting.Repository
+	UsageEvents      usageevent.Repository
+	DeadLetters      deadletter.Repository
+	ModelPrices      modelprice.Repository
+	APIKeyAliases    apikeyalias.Repository
+	CodexInspections codexinspection.Repository
 }
 
 func Open(path string, protector ...*security.Protector) (*Store, error) {
@@ -60,12 +70,13 @@ func Open(path string, protector ...*security.Protector) (*Store, error) {
 
 func New(db *sql.DB, protector ...*security.Protector) *Store {
 	return &Store{
-		db:            db,
-		Settings:      setting.New(db, protector...),
-		UsageEvents:   usageevent.New(db),
-		DeadLetters:   deadletter.New(db),
-		ModelPrices:   modelprice.New(db),
-		APIKeyAliases: apikeyalias.New(db),
+		db:               db,
+		Settings:         setting.New(db, protector...),
+		UsageEvents:      usageevent.New(db),
+		DeadLetters:      deadletter.New(db),
+		ModelPrices:      modelprice.New(db),
+		APIKeyAliases:    apikeyalias.New(db),
+		CodexInspections: codexinspection.New(db),
 	}
 }
 
@@ -138,6 +149,42 @@ func (s *Store) UpsertAPIKeyAliasesWithActiveHashes(ctx context.Context, aliases
 
 func (s *Store) DeleteAPIKeyAlias(ctx context.Context, apiKeyHash string) error {
 	return s.APIKeyAliases.Delete(ctx, apiKeyHash)
+}
+
+func (s *Store) CreateCodexInspectionRun(ctx context.Context, run CodexInspectionRun) (CodexInspectionRun, error) {
+	return s.CodexInspections.CreateRun(ctx, run)
+}
+
+func (s *Store) UpdateCodexInspectionRun(ctx context.Context, run CodexInspectionRun) error {
+	return s.CodexInspections.UpdateRun(ctx, run)
+}
+
+func (s *Store) InsertCodexInspectionResult(ctx context.Context, result CodexInspectionResult) (CodexInspectionResult, error) {
+	return s.CodexInspections.InsertResult(ctx, result)
+}
+
+func (s *Store) InsertCodexInspectionLog(ctx context.Context, entry CodexInspectionLog) (CodexInspectionLog, error) {
+	return s.CodexInspections.InsertLog(ctx, entry)
+}
+
+func (s *Store) ListCodexInspectionRuns(ctx context.Context, limit int) ([]CodexInspectionRun, error) {
+	return s.CodexInspections.ListRuns(ctx, limit)
+}
+
+func (s *Store) GetCodexInspectionRun(ctx context.Context, id int64) (CodexInspectionRun, bool, error) {
+	return s.CodexInspections.GetRun(ctx, id)
+}
+
+func (s *Store) GetLatestCodexInspectionRunByTrigger(ctx context.Context, triggerType, triggerKey string) (CodexInspectionRun, bool, error) {
+	return s.CodexInspections.GetLatestRunByTrigger(ctx, triggerType, triggerKey)
+}
+
+func (s *Store) ListCodexInspectionResults(ctx context.Context, runID int64) ([]CodexInspectionResult, error) {
+	return s.CodexInspections.ListResults(ctx, runID)
+}
+
+func (s *Store) ListCodexInspectionLogs(ctx context.Context, runID int64) ([]CodexInspectionLog, error) {
+	return s.CodexInspections.ListLogs(ctx, runID)
 }
 
 func (s *Store) InsertEvents(ctx context.Context, events []usage.Event) (InsertResult, error) {

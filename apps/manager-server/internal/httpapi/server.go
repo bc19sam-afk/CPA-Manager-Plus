@@ -22,6 +22,7 @@ var openRouterModelPriceSyncURL = "https://openrouter.ai/api/v1/models"
 
 type Server struct {
 	handler http.Handler
+	appCtx  *app.Context
 }
 
 func New(cfg config.Config, store *store.Store, collector *collector.Manager) *Server {
@@ -38,9 +39,14 @@ func New(cfg config.Config, store *store.Store, collector *collector.Manager) *S
 	)
 	return &Server{
 		handler: router.New(appCtx),
+		appCtx:  appCtx,
 	}
 }
 
 func (s *Server) Handler() http.Handler {
 	return s.handler
+}
+
+func (s *Server) AppContext() *app.Context {
+	return s.appCtx
 }

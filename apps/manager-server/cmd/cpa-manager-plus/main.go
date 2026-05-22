@@ -62,9 +62,13 @@ func main() {
 
 	collectorWorker.Start(ctx)
 
+	serverApp := httpapi.New(cfg, db, manager)
+	codexInspectionWorker := worker.NewCodexInspectionWorker(serverApp.AppContext().Store, serverApp.AppContext().CodexInspectionService)
+	codexInspectionWorker.Start(ctx)
+
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(cfg, db, manager).Handler(),
+		Handler:           serverApp.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

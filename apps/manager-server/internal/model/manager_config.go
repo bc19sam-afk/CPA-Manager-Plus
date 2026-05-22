@@ -3,6 +3,7 @@ package model
 type ManagerConfig struct {
 	CPAConnection        ManagerCPAConnectionConfig        `json:"cpaConnection"`
 	Collector            ManagerCollectorConfig            `json:"collector"`
+	CodexInspection      ManagerCodexInspectionConfig      `json:"codexInspection"`
 	ExternalUsageService ManagerExternalUsageServiceConfig `json:"externalUsageService"`
 	UpdatedAtMS          int64                             `json:"updatedAtMs,omitempty"`
 }
