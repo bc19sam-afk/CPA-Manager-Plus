@@ -140,6 +140,7 @@
     "error_forbidden": "访问被拒绝，权限不足",
     "error_not_found": "服务器地址无效或管理接口未启用",
     "error_server": "服务器内部错误，请稍后重试",
+    "error_backend_detail": "后端详情",
     "error_cors": "跨域请求被阻止，请检查服务器配置",
     "error_ssl": "SSL/TLS 证书验证失败"
   },
@@ -896,6 +897,22 @@
     "limit_window": "{{duration}} 限额",
     "limit_index": "限额 #{{index}}",
     "reset_hint": "{{hint}} 后重置"
+  },
+  "xai_quota": {
+    "title": "xAI 额度",
+    "empty_title": "暂无 xAI 认证",
+    "empty_desc": "使用 xAI OAuth 登录后即可查看 Grok 账单额度。",
+    "idle": "点击此处刷新额度",
+    "loading": "正在加载额度...",
+    "load_failed": "额度获取失败：{{message}}",
+    "missing_auth_index": "认证文件缺少 auth_index",
+    "empty_data": "暂无账单额度数据",
+    "refresh_button": "刷新额度",
+    "fetch_all": "获取全部",
+    "monthly_limit": "月度账单限额",
+    "on_demand_cap": "按需上限",
+    "usage_amount": "{{used}} / {{limit}}",
+    "reset_unknown": "重置时间未知"
   },
   "vertex_import": {
     "title": "Vertex JSON 登录",

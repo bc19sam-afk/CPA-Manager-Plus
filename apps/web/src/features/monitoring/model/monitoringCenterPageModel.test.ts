@@ -4,6 +4,7 @@ import {
   fetchClaudeQuota,
   fetchGeminiCliCodeAssist,
   fetchGeminiCliQuotaBuckets,
+  fetchXaiQuota,
 } from '@/utils/quota';
 import type { MonitoringAccountQuotaTarget } from '@/features/monitoring/accountOverviewQuotaTargets';
 import { requestAccountQuota } from './monitoringCenterPageModel';
@@ -18,6 +19,7 @@ vi.mock('@/utils/quota', async (importOriginal) => {
     fetchGeminiCliCodeAssist: vi.fn(),
     fetchGeminiCliQuotaBuckets: vi.fn(),
     fetchKimiQuota: vi.fn(),
+    fetchXaiQuota: vi.fn(),
   };
 });
 
@@ -40,6 +42,11 @@ const t = ((key: string, options?: Record<string, unknown>) => {
     'gemini_cli_quota.remaining_amount': 'Remaining {{count}}',
     'kimi_quota.title': 'Kimi Quota',
     'kimi_quota.empty_data': 'No Kimi quota data',
+    'xai_quota.title': 'xAI Quota',
+    'xai_quota.empty_data': 'No xAI quota data',
+    'xai_quota.monthly_limit': 'Monthly billing limit',
+    'xai_quota.on_demand_cap': 'On-demand cap',
+    'xai_quota.usage_amount': '{{used}} / {{limit}}',
   };
   let value = copy[key] ?? key;
   Object.entries(options ?? {}).forEach(([name, replacement]) => {
@@ -70,6 +77,7 @@ describe('monitoringCenterPageModel account quota', () => {
     vi.mocked(fetchClaudeQuota).mockReset();
     vi.mocked(fetchGeminiCliCodeAssist).mockReset();
     vi.mocked(fetchGeminiCliQuotaBuckets).mockReset();
+    vi.mocked(fetchXaiQuota).mockReset();
   });
 
   it('maps Claude usage windows into account quota entries', async () => {
@@ -154,5 +162,39 @@ describe('monitoringCenterPageModel account quota', () => {
       },
     ]);
     expect(fetchGeminiCliCodeAssist).toHaveBeenCalledWith('2', 'project-1', t);
+  });
+
+  it('maps xAI billing into account quota entries', async () => {
+    vi.mocked(fetchXaiQuota).mockResolvedValue({
+      monthlyLimitCents: 10000,
+      usedCents: 2500,
+      onDemandCapCents: 5000,
+      billingPeriodStart: '2026-05-01T00:00:00Z',
+      billingPeriodEnd: '2026-06-01T00:00:00Z',
+      usedPercent: 25,
+    });
+
+    const entry = await requestAccountQuota(
+      createTarget({
+        provider: 'xai',
+        authIndex: '3',
+        fileName: 'xai.json',
+      }),
+      t
+    );
+
+    expect(entry).toMatchObject({
+      provider: 'xai',
+      providerLabel: 'xAI Quota',
+      metaLabels: ['xAI Quota', 'On-demand cap: $50.00'],
+      windows: [
+        {
+          id: 'monthly-limit',
+          label: 'Monthly billing limit',
+          remainingPercent: 75,
+          usageLabel: '$25.00 / $100.00',
+        },
+      ],
+    });
   });
 });

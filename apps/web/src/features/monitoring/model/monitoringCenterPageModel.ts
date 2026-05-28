@@ -6,6 +6,7 @@ import type {
   CodexQuotaWindow,
   GeminiCliQuotaBucketState,
   KimiQuotaRow,
+  XaiBillingSummary,
 } from '@/types';
 import type {
   MonitoringAccountRow,
@@ -34,6 +35,7 @@ import {
   fetchGeminiCliCodeAssist,
   fetchGeminiCliQuotaBuckets,
   fetchKimiQuota,
+  fetchXaiQuota,
   formatKimiResetHint,
   formatQuotaResetTime,
 } from '@/utils/quota';
@@ -549,6 +551,27 @@ const buildKimiAccountQuotaWindows = (rows: KimiQuotaRow[], t: TFunction): Accou
     };
   });
 
+const formatXaiCurrency = (value: number | null): string => {
+  if (value === null) return '--';
+  return `$${(value / 100).toFixed(2)}`;
+};
+
+const buildXaiAccountQuotaWindows = (
+  billing: XaiBillingSummary,
+  t: TFunction
+): AccountQuotaWindow[] => [
+  {
+    id: 'monthly-limit',
+    label: t('xai_quota.monthly_limit'),
+    remainingPercent: buildRemainingFromUsedPercent(billing.usedPercent),
+    resetLabel: billing.billingPeriodEnd ? formatQuotaResetTime(billing.billingPeriodEnd) : '-',
+    usageLabel: t('xai_quota.usage_amount', {
+      used: formatXaiCurrency(billing.usedCents),
+      limit: formatXaiCurrency(billing.monthlyLimitCents),
+    }),
+  },
+];
+
 export const getAccountQuotaProviderLabel = (
   provider: MonitoringAccountQuotaProvider,
   t: TFunction
@@ -562,6 +585,8 @@ export const getAccountQuotaProviderLabel = (
       return t('gemini_cli_quota.title');
     case 'kimi':
       return t('kimi_quota.title');
+    case 'xai':
+      return t('xai_quota.title');
     case 'codex':
     default:
       return t('codex_quota.title');
@@ -578,6 +603,8 @@ const getAccountQuotaEmptyMessage = (provider: MonitoringAccountQuotaProvider, t
       return t('gemini_cli_quota.empty_buckets');
     case 'kimi':
       return t('kimi_quota.empty_data');
+    case 'xai':
+      return t('xai_quota.empty_data');
     case 'codex':
     default:
       return t('codex_quota.empty_windows');
@@ -664,6 +691,17 @@ export const requestAccountQuota = async (
       return {
         ...buildBaseAccountQuotaEntry(target, t),
         windows: buildKimiAccountQuotaWindows(rows, t),
+      };
+    }
+    case 'xai': {
+      const billing = await fetchXaiQuota(target.file, t);
+      const metaLabels =
+        billing.onDemandCapCents !== null
+          ? [`${t('xai_quota.on_demand_cap')}: ${formatXaiCurrency(billing.onDemandCapCents)}`]
+          : [];
+      return {
+        ...buildBaseAccountQuotaEntry(target, t, metaLabels),
+        windows: buildXaiAccountQuotaWindows(billing, t),
       };
     }
     case 'codex':

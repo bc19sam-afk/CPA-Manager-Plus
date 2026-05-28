@@ -68,10 +68,23 @@ function getLocalizedErrorMessage(
           ? error
           : '';
 
-  if (status === 401) return t('login.error_unauthorized');
-  if (status === 403) return t('login.error_forbidden');
-  if (status === 404) return t('login.error_not_found');
-  if (status && status >= 500) return t('login.error_server');
+  const withHttpStatus = (summary: string) => {
+    if (!status) return summary;
+
+    const genericAxiosMessage = `Request failed with status code ${status}`;
+    const detail = message.trim();
+    const backendDetail =
+      detail && detail !== genericAxiosMessage
+        ? ` (${t('login.error_backend_detail')}: ${detail})`
+        : '';
+
+    return `HTTP ${status}: ${summary}${backendDetail}`;
+  };
+
+  if (status === 401) return withHttpStatus(t('login.error_unauthorized'));
+  if (status === 403) return withHttpStatus(t('login.error_forbidden'));
+  if (status === 404) return withHttpStatus(t('login.error_not_found'));
+  if (status && status >= 500) return withHttpStatus(t('login.error_server'));
   if (code === 'ECONNABORTED' || message.toLowerCase().includes('timeout')) {
     return t('login.error_timeout');
   }
@@ -85,7 +98,7 @@ function getLocalizedErrorMessage(
     return t('login.error_cors');
   }
 
-  return t('login.error_invalid');
+  return withHttpStatus(t('login.error_invalid'));
 }
 
 export function LoginPage() {
