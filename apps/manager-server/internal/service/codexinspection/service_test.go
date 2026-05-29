@@ -57,8 +57,11 @@ func TestRunPersistsLogsResultsAndDetail(t *testing.T) {
 	if result.Results[0].RunID != result.Run.ID {
 		t.Fatalf("result run id = %d, want %d", result.Results[0].RunID, result.Run.ID)
 	}
-	if result.Results[0].Action != "delete" {
+	if result.Results[0].Action != "keep" {
 		t.Fatalf("result action = %q", result.Results[0].Action)
+	}
+	if result.Run.DeleteCount != 0 || result.Run.KeepCount != 1 {
+		t.Fatalf("run counts delete=%d keep=%d, want 0/1", result.Run.DeleteCount, result.Run.KeepCount)
 	}
 	if len(result.Logs) == 0 {
 		t.Fatal("expected persisted logs")
@@ -78,7 +81,7 @@ func TestRunPersistsLogsResultsAndDetail(t *testing.T) {
 	}
 }
 
-func TestRunDoesNotAutoEnableRecoveredDisabledAccount(t *testing.T) {
+func TestRunAutoActionNoneDoesNotExecuteActions(t *testing.T) {
 	var patchCalled bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -88,6 +91,104 @@ func TestRunDoesNotAutoEnableRecoveredDisabledAccount(t *testing.T) {
 			_, _ = w.Write([]byte(`{"status_code":200,"body":{"ok":true}}`))
 		case strings.HasPrefix(r.URL.Path, "/auth-files") && r.Method == http.MethodPatch:
 			patchCalled = true
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	db := newCodexInspectionTestStore(t)
+	managerCfg := newCodexInspectionManagerConfig(upstream.URL)
+	managerCfg.CodexInspection.AutoActionMode = model.CodexInspectionAutoActionNone
+	if err := db.SaveManagerConfig(context.Background(), managerCfg); err != nil {
+		t.Fatalf("save manager config: %v", err)
+	}
+	svc := newCodexInspectionTestService(t, db)
+
+	result, err := svc.Run(context.Background(), RunRequest{
+		TriggerType: "manual",
+		TriggerKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("run inspection: %v", err)
+	}
+	if result.Run.EnableCount != 1 {
+		t.Fatalf("enable count = %d, want 1", result.Run.EnableCount)
+	}
+	if patchCalled {
+		t.Fatal("server inspection executed action in none mode")
+	}
+}
+
+func TestRunAutoActionEnableEnablesRecoveredDisabledAccount(t *testing.T) {
+	var patchCalled bool
+	var patchedDisabled bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/auth-files" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","disabled":true,"status":"ok","state":"ready"}]}`))
+		case r.URL.Path == "/api-call" && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`{"status_code":200,"body":{"ok":true}}`))
+		case strings.HasPrefix(r.URL.Path, "/auth-files") && r.Method == http.MethodPatch:
+			patchCalled = true
+			var payload struct {
+				Name     string `json:"name"`
+				Disabled bool   `json:"disabled"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode patch payload: %v", err)
+			}
+			if payload.Name != "auth-a.json" {
+				t.Fatalf("patch name = %q, want auth-a.json", payload.Name)
+			}
+			patchedDisabled = payload.Disabled
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	db := newCodexInspectionTestStore(t)
+	managerCfg := newCodexInspectionManagerConfig(upstream.URL)
+	managerCfg.CodexInspection.AutoActionMode = model.CodexInspectionAutoActionEnable
+	if err := db.SaveManagerConfig(context.Background(), managerCfg); err != nil {
+		t.Fatalf("save manager config: %v", err)
+	}
+	svc := newCodexInspectionTestService(t, db)
+
+	result, err := svc.Run(context.Background(), RunRequest{
+		TriggerType: "manual",
+		TriggerKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("run inspection: %v", err)
+	}
+	if !patchCalled {
+		t.Fatal("server inspection did not auto-enable recovered account")
+	}
+	if patchedDisabled {
+		t.Fatal("server inspection disabled a recovered account, want enable")
+	}
+	if result.Run.EnableCount != 0 || result.Run.KeepCount != 1 {
+		t.Fatalf("run counts enable=%d keep=%d, want 0/1", result.Run.EnableCount, result.Run.KeepCount)
+	}
+	if result.Results[0].Action != "keep" || result.Results[0].Disabled {
+		t.Fatalf("result after enable = %#v", result.Results[0])
+	}
+}
+
+func TestRunClassifiesExpiredUnauthorizedAsReauth(t *testing.T) {
+	var deleteCalled bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/auth-files" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","status":"ok","state":"ready"}]}`))
+		case r.URL.Path == "/api-call" && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`{"status_code":401,"body":{"message":"Provided authentication token is expired. Please try signing in again."}}`))
+		case strings.HasPrefix(r.URL.Path, "/auth-files") && r.Method == http.MethodDelete:
+			deleteCalled = true
 			_, _ = w.Write([]byte(`{"ok":true}`))
 		default:
 			http.NotFound(w, r)
@@ -108,11 +209,50 @@ func TestRunDoesNotAutoEnableRecoveredDisabledAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run inspection: %v", err)
 	}
-	if result.Run.EnableCount != 1 {
-		t.Fatalf("enable count = %d, want 1", result.Run.EnableCount)
+	if deleteCalled {
+		t.Fatal("expired token reauth suggestion should not execute delete action")
 	}
-	if patchCalled {
-		t.Fatal("server inspection auto-executed enable action")
+	if result.Run.ReauthCount != 1 || result.Run.DeleteCount != 0 || result.Run.KeepCount != 0 {
+		t.Fatalf("run counts reauth=%d delete=%d keep=%d, want 1/0/0", result.Run.ReauthCount, result.Run.DeleteCount, result.Run.KeepCount)
+	}
+	if len(result.Results) != 1 || result.Results[0].Action != "reauth" {
+		t.Fatalf("result action = %#v, want reauth", result.Results)
+	}
+}
+
+func TestRunClassifiesInvalidatedUnauthorizedAsDelete(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/auth-files" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","status":"ok","state":"ready"}]}`))
+		case r.URL.Path == "/api-call" && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`{"status_code":401,"body":{"message":"Your authentication token has been invalidated. Please try signing in again."}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	db := newCodexInspectionTestStore(t)
+	managerCfg := newCodexInspectionManagerConfig(upstream.URL)
+	managerCfg.CodexInspection.AutoActionMode = model.CodexInspectionAutoActionNone
+	if err := db.SaveManagerConfig(context.Background(), managerCfg); err != nil {
+		t.Fatalf("save manager config: %v", err)
+	}
+	svc := newCodexInspectionTestService(t, db)
+
+	result, err := svc.Run(context.Background(), RunRequest{
+		TriggerType: "manual",
+		TriggerKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("run inspection: %v", err)
+	}
+	if result.Run.DeleteCount != 1 || result.Run.ReauthCount != 0 {
+		t.Fatalf("run counts delete=%d reauth=%d, want 1/0", result.Run.DeleteCount, result.Run.ReauthCount)
+	}
+	if len(result.Results) != 1 || result.Results[0].Action != "delete" {
+		t.Fatalf("result action = %#v, want delete", result.Results)
 	}
 }
 
@@ -237,8 +377,8 @@ func TestRunFallsBackToManagementAuthFileActionPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run inspection: %v", err)
 	}
-	if result.Run.DeleteCount != 1 {
-		t.Fatalf("delete count = %d, want 1", result.Run.DeleteCount)
+	if result.Run.DeleteCount != 0 || result.Run.KeepCount != 1 {
+		t.Fatalf("run counts delete=%d keep=%d, want 0/1", result.Run.DeleteCount, result.Run.KeepCount)
 	}
 	if result.Run.Error != "" {
 		t.Fatalf("run error = %q", result.Run.Error)
@@ -298,8 +438,11 @@ func TestRunFallsBackToManagementAuthFileStatusActionPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run inspection: %v", err)
 	}
-	if result.Run.DisableCount != 1 {
-		t.Fatalf("disable count = %d, want 1", result.Run.DisableCount)
+	if result.Run.DisableCount != 0 || result.Run.KeepCount != 1 {
+		t.Fatalf("run counts disable=%d keep=%d, want 0/1", result.Run.DisableCount, result.Run.KeepCount)
+	}
+	if result.Run.DisabledCount != 1 {
+		t.Fatalf("disabled count = %d, want 1", result.Run.DisabledCount)
 	}
 	if result.Run.Error != "" {
 		t.Fatalf("run error = %q", result.Run.Error)
@@ -309,6 +452,72 @@ func TestRunFallsBackToManagementAuthFileStatusActionPath(t *testing.T) {
 	}
 	if !patchedDisabled {
 		t.Fatal("management patch did not disable the auth file")
+	}
+}
+
+func TestExecuteManualActionsProcessesCompletedRunResults(t *testing.T) {
+	var patchCalled bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/auth-files" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"files":[{"name":"auth-a.json","auth_index":"auth-1","provider":"codex","account":"alice@example.com","disabled":true,"status":"ok","state":"ready"}]}`))
+		case r.URL.Path == "/api-call" && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`{"status_code":200,"body":{"ok":true}}`))
+		case strings.HasPrefix(r.URL.Path, "/auth-files") && r.Method == http.MethodPatch:
+			patchCalled = true
+			var payload struct {
+				Name     string `json:"name"`
+				Disabled bool   `json:"disabled"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode patch payload: %v", err)
+			}
+			if payload.Name != "auth-a.json" || payload.Disabled {
+				t.Fatalf("patch payload = %#v, want enable auth-a.json", payload)
+			}
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	db := newCodexInspectionTestStore(t)
+	managerCfg := newCodexInspectionManagerConfig(upstream.URL)
+	managerCfg.CodexInspection.AutoActionMode = model.CodexInspectionAutoActionNone
+	if err := db.SaveManagerConfig(context.Background(), managerCfg); err != nil {
+		t.Fatalf("save manager config: %v", err)
+	}
+	svc := newCodexInspectionTestService(t, db)
+
+	runDetail, err := svc.Run(context.Background(), RunRequest{
+		TriggerType: "manual",
+		TriggerKey:  "manual",
+	})
+	if err != nil {
+		t.Fatalf("run inspection: %v", err)
+	}
+	if len(runDetail.Results) != 1 || runDetail.Results[0].Action != "enable" {
+		t.Fatalf("initial results = %#v", runDetail.Results)
+	}
+
+	result, err := svc.ExecuteManualActions(context.Background(), runDetail.Run.ID, ExecuteActionsRequest{
+		ResultIDs: []int64{runDetail.Results[0].ID},
+	})
+	if err != nil {
+		t.Fatalf("execute manual actions: %v", err)
+	}
+	if !patchCalled {
+		t.Fatal("manual action did not patch auth file")
+	}
+	if len(result.Outcomes) != 1 || !result.Outcomes[0].Success || result.Outcomes[0].Action != "enable" {
+		t.Fatalf("outcomes = %#v", result.Outcomes)
+	}
+	if result.Detail.Run.EnableCount != 0 || result.Detail.Run.KeepCount != 1 {
+		t.Fatalf("run counts enable=%d keep=%d, want 0/1", result.Detail.Run.EnableCount, result.Detail.Run.KeepCount)
+	}
+	if result.Detail.Results[0].Action != "keep" || result.Detail.Results[0].Disabled {
+		t.Fatalf("updated result = %#v", result.Detail.Results[0])
 	}
 }
 
