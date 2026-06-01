@@ -40,6 +40,12 @@ describe('CodexSection', () => {
   it('keeps sorted row actions mapped to original config indexes', () => {
     const configs: ProviderKeyConfig[] = [
       { apiKey: 'low-key', baseUrl: 'https://low.example.com/v1', priority: 1 },
+      {
+        apiKey: 'disabled-key',
+        baseUrl: 'https://disabled.example.com/v1',
+        priority: 99,
+        excludedModels: ['*'],
+      },
       { apiKey: 'high-key', baseUrl: 'https://high.example.com/v1', priority: 9 },
       { apiKey: 'unset-key', baseUrl: 'https://unset.example.com/v1' },
     ];
@@ -72,9 +78,13 @@ describe('CodexSection', () => {
     clickButton(deleteHighButton);
     toggleSwitch(firstDescendingRow.findByType(ToggleSwitch), false);
 
-    expect(onEdit).toHaveBeenLastCalledWith(1);
-    expect(onDelete).toHaveBeenLastCalledWith(1);
-    expect(onToggle).toHaveBeenLastCalledWith(1, false);
+    expect(onEdit).toHaveBeenLastCalledWith(2);
+    expect(onDelete).toHaveBeenLastCalledWith(2);
+    expect(onToggle).toHaveBeenLastCalledWith(2, false);
+    const descendingRows = getRows(renderer);
+    expect(getText(descendingRows[descendingRows.length - 1])).toContain(
+      'https://disabled.example.com/v1'
+    );
 
     const sortButton = renderer.root
       .findAllByType(Button)
@@ -90,8 +100,12 @@ describe('CodexSection', () => {
     clickButton(deleteLowButton);
     toggleSwitch(firstAscendingRow.findByType(ToggleSwitch), false);
 
-    expect(onEdit).toHaveBeenLastCalledWith(2);
-    expect(onDelete).toHaveBeenLastCalledWith(2);
-    expect(onToggle).toHaveBeenLastCalledWith(2, false);
+    expect(onEdit).toHaveBeenLastCalledWith(3);
+    expect(onDelete).toHaveBeenLastCalledWith(3);
+    expect(onToggle).toHaveBeenLastCalledWith(3, false);
+    const ascendingRows = getRows(renderer);
+    expect(getText(ascendingRows[ascendingRows.length - 1])).toContain(
+      'https://disabled.example.com/v1'
+    );
   });
 });

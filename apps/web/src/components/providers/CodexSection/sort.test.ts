@@ -9,17 +9,28 @@ describe('sortCodexConfigsByPriority', () => {
     { apiKey: 'highest', baseUrl: 'https://highest.example.com/v1', priority: 10 },
     { apiKey: 'also-highest', baseUrl: 'https://also-highest.example.com/v1', priority: 10 },
     { apiKey: 'lowest', baseUrl: 'https://lowest.example.com/v1', priority: -1 },
+    {
+      apiKey: 'disabled-highest',
+      baseUrl: 'https://disabled-highest.example.com/v1',
+      priority: 99,
+      excludedModels: ['*'],
+    },
+    {
+      apiKey: 'disabled-unset',
+      baseUrl: 'https://disabled-unset.example.com/v1',
+      excludedModels: ['*'],
+    },
   ];
 
-  it('sorts priorities high to low by default and treats missing priority as 0', () => {
+  it('sorts enabled priorities high to low by default and treats missing priority as 0', () => {
     expect(sortCodexConfigsByPriority(configs).map((item) => item.originalIndex)).toEqual([
-      2, 3, 0, 1, 4,
+      2, 3, 0, 1, 4, 5, 6,
     ]);
   });
 
-  it('sorts priorities low to high when requested and treats missing priority as 0', () => {
+  it('sorts enabled priorities low to high when requested and treats missing priority as 0', () => {
     expect(sortCodexConfigsByPriority(configs, 'asc').map((item) => item.originalIndex)).toEqual([
-      4, 1, 0, 2, 3,
+      4, 1, 0, 2, 3, 5, 6,
     ]);
   });
 

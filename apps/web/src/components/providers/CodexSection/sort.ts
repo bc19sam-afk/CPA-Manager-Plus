@@ -1,4 +1,5 @@
 import type { ProviderKeyConfig } from '@/types';
+import { hasDisableAllModelsRule } from '../utils';
 
 export type CodexProviderSortDirection = 'asc' | 'desc';
 
@@ -19,6 +20,14 @@ export const sortCodexConfigsByPriority = (
   const indexed = configs.map((config, originalIndex) => ({ config, originalIndex }));
 
   return [...indexed].sort((left, right) => {
+    const leftDisabled = hasDisableAllModelsRule(left.config.excludedModels);
+    const rightDisabled = hasDisableAllModelsRule(right.config.excludedModels);
+
+    if (leftDisabled || rightDisabled) {
+      if (leftDisabled !== rightDisabled) return leftDisabled ? 1 : -1;
+      return left.originalIndex - right.originalIndex;
+    }
+
     const leftPriority = getPriority(left.config);
     const rightPriority = getPriority(right.config);
 
