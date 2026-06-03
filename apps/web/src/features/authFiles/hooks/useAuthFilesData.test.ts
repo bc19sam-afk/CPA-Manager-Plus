@@ -455,6 +455,11 @@ describe('useAuthFilesData handleDeleteAll', () => {
       | { onConfirm?: () => Promise<void> }
       | undefined;
     expect(confirmation?.onConfirm).toBeTypeOf('function');
+    expect(mocks.showConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'auth_files.delete_filtered_result_confirm_file_scope',
+      })
+    );
 
     await act(async () => {
       await confirmation?.onConfirm?.();

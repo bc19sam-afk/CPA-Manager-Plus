@@ -366,7 +366,7 @@ export function useAuthFilesData(): UseAuthFilesDataResult {
       const typeLabel = isFiltered ? getTypeLabel(t, normalizedFilter) : t('auth_files.filter_all');
       let confirmMessage = t('auth_files.delete_all_confirm');
       if (isFilteredResult) {
-        confirmMessage = t('auth_files.delete_filtered_result_confirm');
+        confirmMessage = t('auth_files.delete_filtered_result_confirm_file_scope');
       } else if (isProblemOnly) {
         confirmMessage = isFiltered
           ? t('auth_files.delete_problem_filtered_confirm', { type: typeLabel })
