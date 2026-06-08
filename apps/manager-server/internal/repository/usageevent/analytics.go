@@ -627,29 +627,50 @@ func percentile95(values []float64) (float64, bool) {
 	return values[index], true
 }
 
-func (r *repository) HourlyDistributionWithFilter(ctx context.Context, filter AnalyticsFilter) ([]HourlyPoint, error) {
+func (r *repository) HourlyDistributionWithFilter(ctx context.Context, filter AnalyticsFilter, location *time.Location) ([]HourlyPoint, error) {
+	if location == nil {
+		location = time.UTC
+	}
 	where, args := analyticsWhere(filter)
-	rows, err := r.db.QueryContext(ctx, `select
-	cast(strftime('%H', datetime(timestamp_ms / 1000, 'unixepoch')) as integer) as hour,
-	count(*),
-	coalesce(sum(total_tokens), 0)
+	rows, err := r.db.QueryContext(ctx, `select timestamp_ms, total_tokens
 from usage_events `+where+`
-group by hour
-order by hour`, args...)
+order by timestamp_ms`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	points := make([]HourlyPoint, 0)
+	pointsByHour := map[int]*HourlyPoint{}
 	for rows.Next() {
-		var point HourlyPoint
-		if err := rows.Scan(&point.Hour, &point.Calls, &point.Tokens); err != nil {
+		var timestampMS int64
+		var totalTokens int64
+		if err := rows.Scan(&timestampMS, &totalTokens); err != nil {
 			return nil, err
 		}
-		points = append(points, point)
+		hour := time.UnixMilli(timestampMS).In(location).Hour()
+		point := pointsByHour[hour]
+		if point == nil {
+			point = &HourlyPoint{Hour: hour}
+			pointsByHour[hour] = point
+		}
+		point.Calls += 1
+		point.Tokens += totalTokens
 	}
-	return points, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	hours := make([]int, 0, len(pointsByHour))
+	for hour := range pointsByHour {
+		hours = append(hours, hour)
+	}
+	sort.Ints(hours)
+	points := make([]HourlyPoint, 0, len(hours))
+	for _, hour := range hours {
+		point := pointsByHour[hour]
+		points = append(points, *point)
+	}
+	return points, nil
 }
 
 func (r *repository) FilterOptionValuesWithFilter(ctx context.Context, filter AnalyticsFilter) (FilterOptionValues, error) {
@@ -1367,13 +1388,29 @@ limit ?`, args...)
 	return EventsPage{Items: items, NextBeforeMS: nextBeforeMS, NextBeforeID: nextBeforeID, HasMore: hasMore}, nil
 }
 
-func (r *repository) ActiveDaysWithFilter(ctx context.Context, filter AnalyticsFilter) (int64, error) {
+func (r *repository) ActiveDaysWithFilter(ctx context.Context, filter AnalyticsFilter, location *time.Location) (int64, error) {
+	if location == nil {
+		location = time.UTC
+	}
 	where, args := analyticsWhere(filter)
-	var count int64
-	if err := r.db.QueryRowContext(ctx, `select count(distinct (timestamp_ms / 86400000)) from usage_events `+where, args...).Scan(&count); err != nil {
+	rows, err := r.db.QueryContext(ctx, `select timestamp_ms from usage_events `+where, args...)
+	if err != nil {
 		return 0, err
 	}
-	return count, nil
+	defer rows.Close()
+
+	activeDays := map[string]struct{}{}
+	for rows.Next() {
+		var timestampMS int64
+		if err := rows.Scan(&timestampMS); err != nil {
+			return 0, err
+		}
+		activeDays[time.UnixMilli(timestampMS).In(location).Format("2006-01-02")] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	return int64(len(activeDays)), nil
 }
 
 func (r *repository) ZeroTokenModelsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]string, error) {

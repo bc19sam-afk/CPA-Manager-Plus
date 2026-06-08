@@ -271,8 +271,8 @@ func (s *Store) LatencySummaryWithFilter(ctx context.Context, filter AnalyticsFi
 	return s.UsageEvents.LatencySummaryWithFilter(ctx, filter)
 }
 
-func (s *Store) HourlyDistributionWithFilter(ctx context.Context, filter AnalyticsFilter) ([]HourlyPoint, error) {
-	return s.UsageEvents.HourlyDistributionWithFilter(ctx, filter)
+func (s *Store) HourlyDistributionWithFilter(ctx context.Context, filter AnalyticsFilter, location *time.Location) ([]HourlyPoint, error) {
+	return s.UsageEvents.HourlyDistributionWithFilter(ctx, filter, location)
 }
 
 func (s *Store) FilterOptionValuesWithFilter(ctx context.Context, filter AnalyticsFilter) (FilterOptionValues, error) {
@@ -319,8 +319,8 @@ func (s *Store) EventsCountWithFilter(ctx context.Context, filter AnalyticsFilte
 	return s.UsageEvents.EventsCountWithFilter(ctx, filter)
 }
 
-func (s *Store) ActiveDaysWithFilter(ctx context.Context, filter AnalyticsFilter) (int64, error) {
-	return s.UsageEvents.ActiveDaysWithFilter(ctx, filter)
+func (s *Store) ActiveDaysWithFilter(ctx context.Context, filter AnalyticsFilter, location *time.Location) (int64, error) {
+	return s.UsageEvents.ActiveDaysWithFilter(ctx, filter, location)
 }
 
 func (s *Store) ZeroTokenModelsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]string, error) {

@@ -490,7 +490,7 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 		if err != nil {
 			return Response{}, err
 		}
-		activeDays, err := s.store.ActiveDaysWithFilter(ctx, filter)
+		activeDays, err := s.store.ActiveDaysWithFilter(ctx, filter, location)
 		if err != nil {
 			return Response{}, err
 		}
@@ -521,7 +521,7 @@ func (s *Service) Analytics(ctx context.Context, req Request) (Response, error) 
 		}
 	}
 	if req.Include.HourlyDistribution {
-		points, err := s.store.HourlyDistributionWithFilter(ctx, filter)
+		points, err := s.store.HourlyDistributionWithFilter(ctx, filter, location)
 		if err != nil {
 			return Response{}, err
 		}

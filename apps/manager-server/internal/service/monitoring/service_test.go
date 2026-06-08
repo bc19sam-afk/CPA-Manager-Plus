@@ -937,6 +937,51 @@ func TestAnalyticsTimelineUsesRequestedTimeZoneForDayBuckets(t *testing.T) {
 	}
 }
 
+func TestAnalyticsSummaryAndHourlyDistributionUseRequestedTimeZone(t *testing.T) {
+	db := newMonitoringTestStore(t)
+	ctx := context.Background()
+	firstMS := time.Date(2026, 6, 3, 23, 30, 0, 0, time.UTC).UnixMilli()
+	secondMS := time.Date(2026, 6, 4, 0, 30, 0, 0, time.UTC).UnixMilli()
+	fromMS := time.Date(2026, 6, 3, 22, 0, 0, 0, time.UTC).UnixMilli()
+	toMS := time.Date(2026, 6, 4, 2, 0, 0, 0, time.UTC).UnixMilli()
+
+	if _, err := db.InsertEvents(ctx, []usage.Event{
+		monitoringEvent("local-summary-a", firstMS, "gpt-a", "auth-1", "source-a", false, 10, 5, 0, 0, 15, nil),
+		monitoringEvent("local-summary-b", secondMS, "gpt-a", "auth-1", "source-a", false, 20, 10, 0, 0, 30, nil),
+	}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	resp, err := New(db).Analytics(ctx, Request{
+		FromMS:   fromMS,
+		ToMS:     toMS,
+		TimeZone: "Asia/Shanghai",
+		Include: Include{
+			Summary:            true,
+			HourlyDistribution: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("analytics: %v", err)
+	}
+
+	if resp.Summary == nil {
+		t.Fatal("summary is nil")
+	}
+	if resp.Summary.AvgDailyRequests != 2 || resp.Summary.AvgDailyTokens != 45 {
+		t.Fatalf("summary daily averages = requests %v tokens %v", resp.Summary.AvgDailyRequests, resp.Summary.AvgDailyTokens)
+	}
+	if len(resp.HourlyDistribution) != 2 {
+		t.Fatalf("hourly distribution = %#v", resp.HourlyDistribution)
+	}
+	if resp.HourlyDistribution[0].Hour != 7 || resp.HourlyDistribution[0].Calls != 1 || resp.HourlyDistribution[0].Tokens != 15 {
+		t.Fatalf("first hourly point = %#v", resp.HourlyDistribution[0])
+	}
+	if resp.HourlyDistribution[1].Hour != 8 || resp.HourlyDistribution[1].Calls != 1 || resp.HourlyDistribution[1].Tokens != 30 {
+		t.Fatalf("second hourly point = %#v", resp.HourlyDistribution[1])
+	}
+}
+
 func newMonitoringTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "usage.sqlite"))
