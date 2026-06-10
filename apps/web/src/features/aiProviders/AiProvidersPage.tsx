@@ -7,9 +7,11 @@ import {
   filterAndSortProviderRows,
   PROVIDER_KIND_LABELS,
   ProviderDetailDrawer,
+  ProviderHealthCheckDrawer,
   ProviderTable,
   ProviderToolbar,
   useProviderRecentRequests,
+  type ProviderHealthCheckApplyAction,
   type ProviderKind,
   type ProviderKindFilter,
   type ProviderRow,
@@ -82,6 +84,7 @@ export function AiProvidersPage() {
   const [sortOption, setSortOption] = useState<ProviderSortOption>('priority');
   const [sortDirection, setSortDirection] = useState<ProviderSortDirection>('desc');
   const [detailRowKey, setDetailRowKey] = useState<string | null>(null);
+  const [healthCheckOpen, setHealthCheckOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PROVIDER_TABLE_DEFAULT_PAGE_SIZE);
 
@@ -277,6 +280,162 @@ export function AiProvidersPage() {
     setKindFilter('all');
     setSearchText('');
     setSelectedModels(new Set());
+  };
+
+  const applyProviderEnabledActions = async (
+    actions: Map<string, ProviderHealthCheckApplyAction>
+  ) => {
+    if (actions.size === 0) return;
+
+    const rowByKey = new Map(rows.map((row) => [row.key, row]));
+    const previous = {
+      gemini: geminiKeys,
+      codex: codexConfigs,
+      claude: claudeConfigs,
+      vertex: vertexConfigs,
+      openai: openaiProviders,
+    };
+    let nextGemini = geminiKeys;
+    let nextCodex = codexConfigs;
+    let nextClaude = claudeConfigs;
+    let nextVertex = vertexConfigs;
+    let nextOpenai = openaiProviders;
+    const changed = {
+      gemini: false,
+      codex: false,
+      claude: false,
+      vertex: false,
+      openai: false,
+    };
+
+    actions.forEach((action, providerKey) => {
+      const row = rowByKey.get(providerKey);
+      if (!row) return;
+      const enabled = action === 'enable';
+      if (row.enabled === enabled) return;
+
+      if (row.kind === 'gemini') {
+        const current = nextGemini[row.originalIndex];
+        if (!current) return;
+        const excludedModels = enabled
+          ? withoutDisableAllModelsRule(current.excludedModels)
+          : withDisableAllModelsRule(current.excludedModels);
+        nextGemini = nextGemini.map((item, index) =>
+          index === row.originalIndex ? { ...item, excludedModels } : item
+        );
+        changed.gemini = true;
+      } else if (row.kind === 'codex') {
+        const current = nextCodex[row.originalIndex];
+        if (!current) return;
+        const excludedModels = enabled
+          ? withoutDisableAllModelsRule(current.excludedModels)
+          : withDisableAllModelsRule(current.excludedModels);
+        nextCodex = nextCodex.map((item, index) =>
+          index === row.originalIndex ? { ...item, excludedModels } : item
+        );
+        changed.codex = true;
+      } else if (row.kind === 'claude') {
+        const current = nextClaude[row.originalIndex];
+        if (!current) return;
+        const excludedModels = enabled
+          ? withoutDisableAllModelsRule(current.excludedModels)
+          : withDisableAllModelsRule(current.excludedModels);
+        nextClaude = nextClaude.map((item, index) =>
+          index === row.originalIndex ? { ...item, excludedModels } : item
+        );
+        changed.claude = true;
+      } else if (row.kind === 'vertex') {
+        const current = nextVertex[row.originalIndex];
+        if (!current) return;
+        const excludedModels = enabled
+          ? withoutDisableAllModelsRule(current.excludedModels)
+          : withDisableAllModelsRule(current.excludedModels);
+        nextVertex = nextVertex.map((item, index) =>
+          index === row.originalIndex ? { ...item, excludedModels } : item
+        );
+        changed.vertex = true;
+      } else {
+        const current = nextOpenai[row.originalIndex];
+        if (!current) return;
+        nextOpenai = nextOpenai.map((item, index) =>
+          index === row.originalIndex ? { ...item, disabled: !enabled } : item
+        );
+        changed.openai = true;
+      }
+    });
+
+    if (!Object.values(changed).some(Boolean)) {
+      showNotification(t('ai_providers.health_check_no_changes'), 'success');
+      return;
+    }
+
+    setConfigSwitchingKey('health-check');
+
+    const applyLocalState = (
+      gemini: GeminiKeyConfig[],
+      codex: ProviderKeyConfig[],
+      claude: ProviderKeyConfig[],
+      vertex: ProviderKeyConfig[],
+      openai: OpenAIProviderConfig[]
+    ) => {
+      if (changed.gemini) {
+        setGeminiKeys(gemini);
+        updateConfigValue('gemini-api-key', gemini);
+        clearCache('gemini-api-key');
+      }
+      if (changed.codex) {
+        setCodexConfigs(codex);
+        updateConfigValue('codex-api-key', codex);
+        clearCache('codex-api-key');
+      }
+      if (changed.claude) {
+        setClaudeConfigs(claude);
+        updateConfigValue('claude-api-key', claude);
+        clearCache('claude-api-key');
+      }
+      if (changed.vertex) {
+        setVertexConfigs(vertex);
+        updateConfigValue('vertex-api-key', vertex);
+        clearCache('vertex-api-key');
+      }
+      if (changed.openai) {
+        setOpenaiProviders(openai);
+        updateConfigValue('openai-compatibility', openai);
+        clearCache('openai-compatibility');
+      }
+    };
+
+    applyLocalState(nextGemini, nextCodex, nextClaude, nextVertex, nextOpenai);
+
+    try {
+      await Promise.all([
+        changed.gemini ? providersApi.saveGeminiKeys(nextGemini) : Promise.resolve(),
+        changed.codex ? providersApi.saveCodexConfigs(nextCodex) : Promise.resolve(),
+        changed.claude ? providersApi.saveClaudeConfigs(nextClaude) : Promise.resolve(),
+        changed.vertex ? providersApi.saveVertexConfigs(nextVertex) : Promise.resolve(),
+        changed.openai ? providersApi.saveOpenAIProviders(nextOpenai) : Promise.resolve(),
+      ]);
+      showNotification(t('ai_providers.health_check_apply_success'), 'success');
+    } catch (err: unknown) {
+      const message = getErrorMessage(err);
+      applyLocalState(
+        previous.gemini,
+        previous.codex,
+        previous.claude,
+        previous.vertex,
+        previous.openai
+      );
+      showNotification(`${t('notification.update_failed')}: ${message}`, 'error');
+      throw err;
+    } finally {
+      setConfigSwitchingKey(null);
+    }
+  };
+
+  const setHealthCheckProviderEnabled = async (providerKey: string, enabled: boolean) => {
+    await applyProviderEnabledActions(
+      new Map([[providerKey, enabled ? 'enable' : 'disable']])
+    );
   };
 
   // 启停（gemini/codex/claude/vertex 走 excludedModels 规则）
@@ -737,6 +896,8 @@ export function AiProvidersPage() {
             disabled={actionsDisabled}
             resolvedTheme={resolvedTheme}
             onAdd={handleAdd}
+            onHealthCheck={() => setHealthCheckOpen(true)}
+            healthCheckDisabled={visibleRows.length === 0}
           />
 
           <Card>
@@ -826,6 +987,14 @@ export function AiProvidersPage() {
         onToggle={handleRowToggle}
         onToggleWebsockets={handleRowWebsocketsToggle}
         onToggleCloak={handleRowCloakToggle}
+      />
+      <ProviderHealthCheckDrawer
+        open={healthCheckOpen}
+        rows={visibleRows}
+        actionsDisabled={actionsDisabled}
+        onClose={() => setHealthCheckOpen(false)}
+        onApplyResultActions={applyProviderEnabledActions}
+        onSetProviderEnabled={setHealthCheckProviderEnabled}
       />
     </div>
   );

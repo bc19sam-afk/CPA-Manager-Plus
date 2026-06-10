@@ -9,6 +9,7 @@ import {
   IconChevronDown,
   IconFilterAll,
   IconSearch,
+  IconShield,
   IconX,
 } from '@/components/ui/icons';
 import { getProviderKindIcon, PROVIDER_KIND_LABELS } from '../ProviderTable/kindMeta';
@@ -36,6 +37,8 @@ interface ProviderToolbarProps {
   disabled: boolean;
   resolvedTheme: string;
   onAdd: (kind: ProviderKind) => void;
+  onHealthCheck: () => void;
+  healthCheckDisabled?: boolean;
 }
 
 type ProviderKindTab = {
@@ -65,6 +68,8 @@ export function ProviderToolbar({
   disabled,
   resolvedTheme,
   onAdd,
+  onHealthCheck,
+  healthCheckDisabled = false,
 }: ProviderToolbarProps) {
   const { t } = useTranslation();
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -547,6 +552,16 @@ export function ProviderToolbar({
           )}
         </div>
 
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onHealthCheck}
+          disabled={disabled || healthCheckDisabled}
+          className={styles.healthCheckButton}
+        >
+          <IconShield size={14} />
+          {t('ai_providers.health_check_button')}
+        </Button>
         <DropdownMenu
           ariaLabel={t('ai_providers.add_config_menu_aria')}
           triggerLabel={t('ai_providers.add_config_button')}
