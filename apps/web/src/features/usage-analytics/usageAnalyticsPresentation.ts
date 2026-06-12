@@ -82,6 +82,12 @@ type ModelSummaryCardsInput = CommonSummaryContext & {
   summary: UsageSummaryMetrics;
 };
 
+type ApiKeySummaryCardsInput = CommonSummaryContext & {
+  apiKeyRows: UsageRankRow[];
+  keyAnomalyCount: number;
+  summary: UsageSummaryMetrics;
+};
+
 type HeatmapSummaryCardsInput = CommonSummaryContext & {
   summary: UsageSummaryMetrics;
 };
@@ -446,6 +452,74 @@ export const buildUsageModelSummaryCards = ({
       label: t('usage_analytics.metric_estimated_cost'),
       meta: t('usage_analytics.summary_cost_meta'),
       value: formatMetricValue('estimatedCost', summary.estimatedCost),
+    },
+  ];
+};
+
+// Key-dimension digest only: global totals already live in the overview tab,
+// and the anomaly count must match the warning table (buildKeyAnomalies).
+export const buildUsageApiKeySummaryCards = ({
+  apiKeyRows,
+  keyAnomalyCount,
+  locale,
+  summary,
+  t,
+}: ApiKeySummaryCardsInput): UsageSummaryCard[] => {
+  const topKey = apiKeyRows[0];
+  // With a single costed key, a 100% top share is trivially true — not a concentration signal.
+  const costedKeyCount = apiKeyRows.filter((row) => row.estimatedCost > 0).length;
+  const lowestSuccessKey = apiKeyRows
+    .filter((row) => row.requestCount > 0)
+    .reduce<UsageRankRow | null>(
+      (current, row) => (!current || row.successRate < current.successRate ? row : current),
+      null
+    );
+  return [
+    {
+      accent: 'blue',
+      icon: 'key',
+      label: t('usage_analytics.active_api_keys'),
+      meta: t('usage_analytics.summary_meta'),
+      value: formatCompactNumber(apiKeyRows.length),
+      valueTitle: formatFullNumber(apiKeyRows.length, locale),
+    },
+    {
+      accent: 'amber',
+      icon: 'cost',
+      label: t('usage_analytics.api_key_top_cost_share'),
+      meta: topKey ? topKey.label : t('usage_analytics.summary_meta'),
+      tone:
+        topKey && costedKeyCount >= 2 && topKey.share >= USAGE_MODEL_TOP_SHARE_THRESHOLD
+          ? 'warn'
+          : undefined,
+      value: topKey ? formatPercent(topKey.share) : '-',
+    },
+    {
+      accent: 'red',
+      icon: 'failure',
+      label: t('usage_analytics.api_key_lowest_success'),
+      meta: lowestSuccessKey ? lowestSuccessKey.label : t('usage_analytics.summary_meta'),
+      tone: lowestSuccessKey
+        ? lowestSuccessKey.successRate < USAGE_SUCCESS_RATE_WATCH_THRESHOLD
+          ? 'bad'
+          : 'good'
+        : undefined,
+      value: lowestSuccessKey ? formatPercent(lowestSuccessKey.successRate) : '-',
+    },
+    {
+      accent: 'cyan',
+      icon: 'cost',
+      label: t('usage_analytics.metric_average_cost_per_call'),
+      meta: t('usage_analytics.summary_cost_meta'),
+      value: formatMetricValue('estimatedCost', summary.averageCostPerCall),
+    },
+    {
+      accent: 'red',
+      icon: 'anomaly',
+      label: t('usage_analytics.anomaly_keys'),
+      meta: t('usage_analytics.summary_meta'),
+      tone: keyAnomalyCount > 0 ? 'bad' : undefined,
+      value: formatCompactNumber(keyAnomalyCount),
     },
   ];
 };

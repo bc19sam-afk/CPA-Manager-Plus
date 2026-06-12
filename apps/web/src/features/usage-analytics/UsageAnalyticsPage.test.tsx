@@ -542,7 +542,37 @@ describe('UsageAnalyticsPage', () => {
 
     expect(text).toContain('sk-****7890');
     expect(text).not.toContain('abcdef1234567890');
-    expect(text).toContain('usage_analytics.trend_pending_data');
+    expect(text).not.toContain('usage_analytics.trend_pending_data');
+  });
+
+  it('renders the API Key tab with key-dimension cards, unit-economics columns, and anomaly drilldown', () => {
+    mocks.usageState = createUsageState({ activeTab: 'apiKeys' });
+    const renderer = renderPage();
+    const text = getText(renderer.root);
+
+    // Key-dimension summary cards replace the global totals.
+    expect(text).toContain('usage_analytics.active_api_keys');
+    expect(text).toContain('usage_analytics.api_key_top_cost_share');
+    expect(text).toContain('usage_analytics.api_key_lowest_success');
+    expect(text).toContain('usage_analytics.metric_average_cost_per_call');
+    expect(text).toContain('usage_analytics.anomaly_keys');
+
+    // Rank table gains the model-tab unit-economics columns.
+    expect(text).toContain('usage_analytics.cache_read_rate');
+    expect(text).toContain('usage_analytics.metric_failure_count');
+
+    // Detail panel stays unit-economics only, plus the related model distribution.
+    expect(text).toContain('usage_analytics.api_key_detail_title');
+    expect(text).toContain('usage_analytics.average_tokens_per_request');
+    expect(text).toContain('usage_analytics.related_model_distribution');
+
+    // Anomaly rows drill down into monitoring scoped to the key.
+    const drilldownButtons = renderer.root
+      .findAllByType('button')
+      .filter((node) => getText(node) === 'usage_analytics.view_request_details');
+    expect(drilldownButtons.length).toBeGreaterThan(0);
+    clickHostButton(drilldownButtons[drilldownButtons.length - 1]);
+    expect(mocks.navigate).toHaveBeenCalledWith('/monitoring?api_key_hash=abcdef1234567890');
   });
 
   it('renders the models tab with unit-economics columns and model-scoped insights only', () => {

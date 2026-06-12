@@ -90,6 +90,7 @@ import { useUsageAnalytics } from './useUsageAnalytics';
 import { UsageSummarySection } from './components/UsageSummaryCards';
 import {
   buildUsageEntitySummaryCards,
+  buildUsageApiKeySummaryCards,
   buildUsageModelSummaryCards,
   buildUsageHeatmapSummaryCards,
   buildUsageOverviewSummaryCards,
@@ -791,18 +792,6 @@ function UsageLineChart({
         onClick={onSelectBucket ? handleClick : undefined}
       />
     </div>
-  );
-}
-
-function MiniTrendPlaceholder() {
-  const { t } = useTranslation();
-  return (
-    <span className={styles.sparklinePlaceholder} title={t('usage_analytics.trend_pending_data')}>
-      <svg viewBox="0 0 58 18" aria-hidden="true">
-        <path d="M2 13 L14 9 L26 11 L38 5 L56 7" />
-      </svg>
-      <em>{t('usage_analytics.trend_pending_data')}</em>
-    </span>
   );
 }
 
@@ -2073,7 +2062,15 @@ function InsightsPanel({
   );
 }
 
-function KeyAnomalyTable({ locale, rows }: { locale: string; rows: UsageKeyAnomalyRow[] }) {
+function KeyAnomalyTable({
+  locale,
+  rows,
+  onOpen,
+}: {
+  locale: string;
+  rows: UsageKeyAnomalyRow[];
+  onOpen?: (row: UsageKeyAnomalyRow) => void;
+}) {
   const { t } = useTranslation();
   return (
     <div className={styles.tableWrap}>
@@ -2086,12 +2083,13 @@ function KeyAnomalyTable({ locale, rows }: { locale: string; rows: UsageKeyAnoma
             <th>{t('usage_analytics.col_triggered_at')}</th>
             <th>{t('usage_analytics.metric_estimated_cost')}</th>
             <th>{t('usage_analytics.failure_rate')}</th>
+            {onOpen ? <th>{t('usage_analytics.col_action')}</th> : null}
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={6}>{t('usage_analytics.anomaly_none')}</td>
+              <td colSpan={onOpen ? 7 : 6}>{t('usage_analytics.anomaly_none')}</td>
             </tr>
           ) : (
             rows.slice(0, 8).map((row) => (
@@ -2106,6 +2104,17 @@ function KeyAnomalyTable({ locale, rows }: { locale: string; rows: UsageKeyAnoma
                 <td>{row.triggeredAtMs ? formatLocalDateTime(row.triggeredAtMs, locale) : '-'}</td>
                 <td>{formatMetricValue('estimatedCost', row.row.estimatedCost)}</td>
                 <td>{formatPercent(row.row.failureCount / Math.max(row.row.requestCount, 1))}</td>
+                {onOpen ? (
+                  <td>
+                    <button
+                      type="button"
+                      className={styles.linkButton}
+                      onClick={() => onOpen(row)}
+                    >
+                      {t('usage_analytics.view_request_details')}
+                    </button>
+                  </td>
+                ) : null}
               </tr>
             ))
           )}
@@ -2453,9 +2462,6 @@ function UsageAnalyticsPageInner() {
         : [],
     [usage.apiKeyRows, usage.selectedModel]
   );
-  const abnormalApiKeyCount = usage.apiKeyRows.filter(
-    (row) => row.failureCount > 0 || row.share > 0.3
-  ).length;
   const abnormalCredentialCount = usage.credentialRows.filter(
     (row) => row.failureCount > 0 || row.share > 0.3
   ).length;
@@ -2516,19 +2522,14 @@ function UsageAnalyticsPageInner() {
   );
   const apiKeySummaryCards = useMemo(
     () =>
-      buildUsageEntitySummaryCards({
-        activeAccent: 'blue',
-        activeCount: usage.apiKeyRows.length,
-        activeIcon: 'key',
-        activeLabel: t('usage_analytics.active_api_keys'),
-        activeMeta: t('usage_analytics.summary_meta'),
-        anomalyCount: abnormalApiKeyCount,
-        anomalyLabel: t('usage_analytics.anomaly_keys'),
+      buildUsageApiKeySummaryCards({
+        apiKeyRows: usage.apiKeyRows,
+        keyAnomalyCount: usage.keyAnomalies.length,
         locale: i18n.language,
         summary: usage.summary,
         t,
       }),
-    [abnormalApiKeyCount, i18n.language, t, usage.apiKeyRows.length, usage.summary]
+    [i18n.language, t, usage.apiKeyRows, usage.keyAnomalies.length, usage.summary]
   );
   const credentialSummaryCards = useMemo(
     () =>
@@ -3088,17 +3089,17 @@ function UsageAnalyticsPageInner() {
         <>
           <UsageSummarySection cards={apiKeySummaryCards} />
           <section className={styles.analysisGrid}>
-            <div className={styles.apiSearchBar}>
-              <IconSearch size={16} />
-              <input
-                value={usage.filters.apiKeyKeyword}
-                onChange={(event) => updateFilters({ apiKeyKeyword: event.target.value })}
-                placeholder={t('usage_analytics.api_key_keyword_placeholder')}
-              />
-            </div>
             <div className={styles.tablePanel}>
               <div className={styles.panelHeader}>
                 <h2>{t('usage_analytics.api_key_rank_title')}</h2>
+                <div className={styles.apiSearchBar}>
+                  <IconSearch size={16} />
+                  <input
+                    value={usage.filters.apiKeyKeyword}
+                    onChange={(event) => updateFilters({ apiKeyKeyword: event.target.value })}
+                    placeholder={t('usage_analytics.api_key_keyword_placeholder')}
+                  />
+                </div>
               </div>
               <RankTable
                 rows={visibleApiKeyRows}
@@ -3106,31 +3107,6 @@ function UsageAnalyticsPageInner() {
                 selectedId={usage.selectedApiKey?.apiKeyHash}
                 onSelect={(row) => usage.setSelectedApiKeyHash(row.apiKeyHash || row.id)}
               />
-            </div>
-            <div className={styles.warningPanel}>
-              <div className={styles.panelHeader}>
-                <h2>{t('usage_analytics.api_key_warning_title')}</h2>
-                <button type="button" onClick={() => usage.setActiveTab('heatmap')}>
-                  {t('usage_analytics.view_exception_combinations')}
-                </button>
-              </div>
-              <KeyAnomalyTable rows={usage.keyAnomalies} locale={i18n.language} />
-            </div>
-            <div className={styles.panel}>
-              <div className={styles.panelHeader}>
-                <div>
-                  <h2>{t('usage_analytics.entity_trend_title')}</h2>
-                  <p>{t('usage_analytics.entity_trend_hint')}</p>
-                </div>
-                <Select
-                  value={usage.trendMetric}
-                  options={trendMetricSelectOptions}
-                  onChange={(value) => usage.setTrendMetric(value as UsageTrendMetricKey)}
-                  ariaLabel={t('usage_analytics.filter_metric')}
-                  triggerClassName={styles.compactSelectTrigger}
-                />
-              </div>
-              <EntityTrendChart series={usage.apiKeyTrendSeries} metric={usage.trendMetric} />
             </div>
             {usage.selectedApiKey ? (
               <DetailPanel
@@ -3154,6 +3130,45 @@ function UsageAnalyticsPageInner() {
                 }
               />
             ) : null}
+            <div className={styles.warningPanel}>
+              <div className={styles.panelHeader}>
+                <h2>{t('usage_analytics.api_key_warning_title')}</h2>
+                <button type="button" onClick={() => usage.setActiveTab('heatmap')}>
+                  {t('usage_analytics.view_exception_combinations')}
+                </button>
+              </div>
+              <KeyAnomalyTable
+                rows={usage.keyAnomalies}
+                locale={i18n.language}
+                onOpen={(row) =>
+                  navigate(
+                    `/monitoring?api_key_hash=${encodeURIComponent(
+                      row.row.apiKeyHash || row.id
+                    )}`
+                  )
+                }
+              />
+            </div>
+            <div className={styles.panel}>
+              <div className={styles.panelHeader}>
+                <div>
+                  <h2>{t('usage_analytics.entity_trend_title')}</h2>
+                  <p>{t('usage_analytics.entity_trend_hint')}</p>
+                </div>
+                <Select
+                  value={usage.trendMetric}
+                  options={trendMetricSelectOptions}
+                  onChange={(value) => usage.setTrendMetric(value as UsageTrendMetricKey)}
+                  ariaLabel={t('usage_analytics.filter_metric')}
+                  triggerClassName={styles.compactSelectTrigger}
+                />
+              </div>
+              <EntityTrendChart
+                series={usage.apiKeyTrendSeries}
+                metric={usage.trendMetric}
+                highlightId={usage.selectedApiKey?.id}
+              />
+            </div>
           </section>
         </>
       ) : null}
@@ -3486,15 +3501,16 @@ function RankTable({
             <th>{t('usage_analytics.metric_input_tokens')}</th>
             <th>{t('usage_analytics.metric_output_tokens')}</th>
             <th>{t('usage_analytics.metric_cached_tokens')}</th>
-            {type === 'model' ? <th>{t('usage_analytics.cache_read_rate')}</th> : null}
+            {type !== 'credential' ? <th>{t('usage_analytics.cache_read_rate')}</th> : null}
             <th>{t('usage_analytics.metric_estimated_cost')}</th>
-            {type === 'model' ? (
+            {type !== 'credential' ? (
               <th>{t('usage_analytics.metric_average_cost_per_call')}</th>
             ) : null}
-            {type === 'model' ? <th>{t('usage_analytics.metric_failure_count')}</th> : null}
+            {type !== 'credential' ? (
+              <th>{t('usage_analytics.metric_failure_count')}</th>
+            ) : null}
             <th>{t('usage_analytics.success_rate')}</th>
             <th>{t('usage_analytics.cost_share')}</th>
-            {type === 'apiKey' ? <th>{t('usage_analytics.trend')}</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -3525,12 +3541,14 @@ function RankTable({
                 <td>{compactNumber(row.inputTokens)}</td>
                 <td>{compactNumber(row.outputTokens)}</td>
                 <td>{compactNumber(row.cachedTokens)}</td>
-                {type === 'model' ? <td>{formatPercent(computeRowCacheHitRate(row))}</td> : null}
+                {type !== 'credential' ? (
+                  <td>{formatPercent(computeRowCacheHitRate(row))}</td>
+                ) : null}
                 <td>{formatMetricValue('estimatedCost', row.estimatedCost)}</td>
-                {type === 'model' ? (
+                {type !== 'credential' ? (
                   <td>{formatMetricValue('estimatedCost', computeRowAverageCostPerCall(row))}</td>
                 ) : null}
-                {type === 'model' ? (
+                {type !== 'credential' ? (
                   <td className={row.failureCount > 0 ? styles.tonebad : ''}>
                     {compactNumber(row.failureCount)}
                   </td>
@@ -3546,11 +3564,6 @@ function RankTable({
                   {formatPercent(row.successRate)}
                 </td>
                 <td>{formatPercent(row.share)}</td>
-                {type === 'apiKey' ? (
-                  <td>
-                    <MiniTrendPlaceholder />
-                  </td>
-                ) : null}
               </tr>
             );
           })}
@@ -3584,7 +3597,7 @@ function DetailPanel({
         <h2>{title}</h2>
         {action}
       </div>
-      {type === 'model' ? (
+      {type !== 'credential' ? (
         // Unit economics + health only: absolute volumes already live in the rank table row.
         <div className={styles.detailMetrics}>
           <div>

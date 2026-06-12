@@ -7,6 +7,7 @@ import type {
   UsageTimelinePoint,
 } from './usageAnalyticsModel';
 import {
+  buildUsageApiKeySummaryCards,
   buildUsageEntitySummaryCards,
   buildUsageModelSummaryCards,
   buildUsageOverviewSummaryCards,
@@ -221,5 +222,66 @@ describe('usageAnalyticsPresentation', () => {
     });
     expect(singleCostedCards[1].tone).toBeUndefined();
     expect(singleCostedCards[1].value).toBe('100.0%');
+  });
+
+  it('builds API key summary cards from key-dimension stats', () => {
+    const keyRow = (overrides: Partial<UsageRankRow>): UsageRankRow => ({
+      id: 'key',
+      label: 'sk-****0001',
+      apiKeyHash: 'hash-0001',
+      requestCount: 100,
+      successCount: 100,
+      failureCount: 0,
+      successRate: 1,
+      totalTokens: 1000,
+      inputTokens: 600,
+      outputTokens: 400,
+      cachedTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      estimatedCost: 10,
+      averageLatencyMs: null,
+      share: 0.5,
+      ...overrides,
+    });
+    const cards = buildUsageApiKeySummaryCards({
+      apiKeyRows: [
+        keyRow({ id: 'k1', label: 'sk-****0001', share: 0.9, successRate: 0.99 }),
+        keyRow({ id: 'k2', label: 'sk-****0002', share: 0.06, successRate: 0.71 }),
+        keyRow({ id: 'k3', label: 'sk-****0003', share: 0.04, successRate: 0.25, requestCount: 0 }),
+      ],
+      keyAnomalyCount: 2,
+      locale: 'en',
+      summary,
+      t,
+    });
+
+    expect(cards.map((card) => card.label)).toEqual([
+      'usage_analytics.active_api_keys',
+      'usage_analytics.api_key_top_cost_share',
+      'usage_analytics.api_key_lowest_success',
+      'usage_analytics.metric_average_cost_per_call',
+      'usage_analytics.anomaly_keys',
+    ]);
+    expect(cards[0].value).toBe('3');
+    expect(cards[1]).toMatchObject({ meta: 'sk-****0001', tone: 'warn', value: '90.0%' });
+    // k3 has zero requests, so the lowest-success slot falls to k2.
+    expect(cards[2]).toMatchObject({ meta: 'sk-****0002', tone: 'bad', value: '71.0%' });
+    expect(cards[4]).toMatchObject({ tone: 'bad', value: '2' });
+
+    // A 100% top share is trivially true with a single costed key — no warn tone.
+    const singleCostedCards = buildUsageApiKeySummaryCards({
+      apiKeyRows: [
+        keyRow({ id: 'k1', share: 1, estimatedCost: 10 }),
+        keyRow({ id: 'k2', share: 0, estimatedCost: 0 }),
+      ],
+      keyAnomalyCount: 0,
+      locale: 'en',
+      summary,
+      t,
+    });
+    expect(singleCostedCards[1].tone).toBeUndefined();
+    expect(singleCostedCards[1].value).toBe('100.0%');
+    expect(singleCostedCards[4].tone).toBeUndefined();
   });
 });

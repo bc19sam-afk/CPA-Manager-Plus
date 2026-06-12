@@ -1132,14 +1132,14 @@
 }
 
 .apiSearchBar {
-  grid-column: 1 / -1;
+  flex: 0 1 320px;
   padding: 0 12px;
   border: 1px solid var(--usage-border);
   border-radius: 12px;
   background: var(--usage-surface);
 
   input {
-    flex: 1 1 260px;
+    flex: 1 1 120px;
     border: 0;
     background: transparent;
   }
@@ -1319,34 +1319,6 @@
   color: var(--usage-muted);
   font-size: 12px;
   font-weight: 700;
-}
-
-.sparklinePlaceholder {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 122px;
-  color: var(--usage-muted);
-  font-size: 12px;
-  font-weight: 700;
-
-  svg {
-    width: 58px;
-    height: 18px;
-  }
-
-  path {
-    fill: none;
-    stroke: color-mix(in srgb, var(--usage-primary) 45%, var(--usage-muted));
-    stroke-dasharray: 3 3;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    stroke-width: 2;
-  }
-
-  em {
-    font-style: normal;
-  }
 }
 
 .warningPanel {
