@@ -16,7 +16,7 @@ import (
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpa"
 )
 
-const DefaultTimeout = 15 * time.Second
+const DefaultTimeout = 30 * time.Second
 
 var ErrAuthFileNotFound = errors.New("CPA auth file not found")
 

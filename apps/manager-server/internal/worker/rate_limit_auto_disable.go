@@ -22,7 +22,7 @@ import (
 const (
 	quotaAutoDisableQueueSize     = 256
 	quotaAutoDisableDefaultTick   = 15 * time.Second
-	quotaAutoDisableActionTimeout = 15 * time.Second
+	quotaAutoDisableActionTimeout = 30 * time.Second
 	quotaCooldownDueLimit         = 100
 )
 
