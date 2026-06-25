@@ -2,9 +2,13 @@ $ErrorActionPreference = 'Stop'
 
 $AppName = 'cpa-manager-plus'
 $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$DefaultRunDir = Join-Path $ScriptDir 'run'
+$DefaultLogDir = Join-Path $ScriptDir 'logs'
+$RunDirIsDefault = -not $env:CPA_MANAGER_PLUS_RUN_DIR
+$LogDirIsDefault = -not $env:CPA_MANAGER_PLUS_LOG_DIR
 $Binary = if ($env:CPA_MANAGER_PLUS_BIN) { $env:CPA_MANAGER_PLUS_BIN } else { Join-Path $ScriptDir "$AppName.exe" }
-$RunDir = if ($env:CPA_MANAGER_PLUS_RUN_DIR) { $env:CPA_MANAGER_PLUS_RUN_DIR } else { Join-Path $ScriptDir 'run' }
-$LogDir = if ($env:CPA_MANAGER_PLUS_LOG_DIR) { $env:CPA_MANAGER_PLUS_LOG_DIR } else { Join-Path $ScriptDir 'logs' }
+$RunDir = if ($env:CPA_MANAGER_PLUS_RUN_DIR) { $env:CPA_MANAGER_PLUS_RUN_DIR } else { $DefaultRunDir }
+$LogDir = if ($env:CPA_MANAGER_PLUS_LOG_DIR) { $env:CPA_MANAGER_PLUS_LOG_DIR } else { $DefaultLogDir }
 $PidFile = if ($env:CPA_MANAGER_PLUS_PID_FILE) { $env:CPA_MANAGER_PLUS_PID_FILE } else { Join-Path $RunDir "$AppName.pid" }
 $LogFile = if ($env:CPA_MANAGER_PLUS_LOG_FILE) { $env:CPA_MANAGER_PLUS_LOG_FILE } else { Join-Path $LogDir "$AppName.log" }
 $ErrLogFile = if ($env:CPA_MANAGER_PLUS_ERR_LOG_FILE) { $env:CPA_MANAGER_PLUS_ERR_LOG_FILE } else { Join-Path $LogDir "$AppName.err.log" }
@@ -97,20 +101,31 @@ function Ensure-PrivateDirectory {
   Set-PrivateAcl -Path $Path -Directory
 }
 
+function Should-ManageExistingDirectory {
+  param([string]$Path)
+
+  if (-not $Path) {
+    return $false
+  }
+
+  $normalizedPath = Resolve-NormalizedPath $Path
+  if ($RunDirIsDefault -and $normalizedPath -ieq (Resolve-NormalizedPath $RunDir)) {
+    return $true
+  }
+  if ($LogDirIsDefault -and $normalizedPath -ieq (Resolve-NormalizedPath $LogDir)) {
+    return $true
+  }
+
+  return $false
+}
+
 function Prepare-PrivateFile {
   param([string]$Path)
 
   $parent = Split-Path -Parent $Path
   if ($parent) {
-    $normalizedParent = Resolve-NormalizedPath $parent
-    $normalizedRunDir = Resolve-NormalizedPath $RunDir
-    $normalizedLogDir = Resolve-NormalizedPath $LogDir
-
-    if ($normalizedParent -ieq $normalizedRunDir -or $normalizedParent -ieq $normalizedLogDir) {
-      Ensure-PrivateDirectory -Path $parent -ManageExisting
-    } else {
-      Ensure-PrivateDirectory -Path $parent
-    }
+    $manageParent = Should-ManageExistingDirectory -Path $parent
+    Ensure-PrivateDirectory -Path $parent -ManageExisting:$manageParent
   }
 
   if (-not (Test-Path -LiteralPath $Path)) {
@@ -265,8 +280,8 @@ function Write-PidRecord {
 }
 
 function Prepare-RuntimePaths {
-  Ensure-PrivateDirectory -Path $RunDir -ManageExisting
-  Ensure-PrivateDirectory -Path $LogDir -ManageExisting
+  Ensure-PrivateDirectory -Path $RunDir -ManageExisting:(Should-ManageExistingDirectory -Path $RunDir)
+  Ensure-PrivateDirectory -Path $LogDir -ManageExisting:(Should-ManageExistingDirectory -Path $LogDir)
   Prepare-PrivateFile -Path $LogFile
   Prepare-PrivateFile -Path $ErrLogFile
 }

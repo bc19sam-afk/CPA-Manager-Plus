@@ -1,5 +1,5 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,6 +68,48 @@ describe('native control scripts', () => {
       expect(runControl(env, ['status'])).toContain('is running with PID');
       expect(runControl(env, ['stop'])).toContain('stopped');
       expect(existsSync(pidFile)).toBe(false);
+    } finally {
+      spawnSync('bash', [unixControlScript, 'stop'], { env, encoding: 'utf8' });
+    }
+  });
+
+  it('does not change permissions on existing custom Unix run/log directories', () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+
+    const sleepBinary = findExecutable(['/bin/sleep', '/usr/bin/sleep']);
+    if (!sleepBinary) {
+      return;
+    }
+
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), 'cpamp-native-existing-dir-'));
+    tempDirs.push(tempDir);
+
+    const runDir = path.join(tempDir, 'existing-run');
+    const logDir = path.join(tempDir, 'existing-logs');
+    mkdirSync(runDir, { recursive: true });
+    mkdirSync(logDir, { recursive: true });
+    chmodSync(runDir, 0o755);
+    chmodSync(logDir, 0o755);
+
+    const pidFile = path.join(runDir, 'cpa-manager-plus.pid');
+    const logFile = path.join(logDir, 'cpa-manager-plus.log');
+    const env = {
+      ...process.env,
+      CPA_MANAGER_PLUS_BIN: sleepBinary,
+      CPA_MANAGER_PLUS_RUN_DIR: runDir,
+      CPA_MANAGER_PLUS_LOG_DIR: logDir,
+    };
+
+    try {
+      runControl(env, ['start', '30']);
+
+      expect(statSync(runDir).mode & 0o777).toBe(0o755);
+      expect(statSync(logDir).mode & 0o777).toBe(0o755);
+      expect(statSync(pidFile).mode & 0o777).toBe(0o600);
+      expect(statSync(logFile).mode & 0o777).toBe(0o600);
+      expect(runControl(env, ['stop'])).toContain('stopped');
     } finally {
       spawnSync('bash', [unixControlScript, 'stop'], { env, encoding: 'utf8' });
     }

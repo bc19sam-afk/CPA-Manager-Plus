@@ -4,11 +4,22 @@ umask 077
 
 app_name="cpa-manager-plus"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+default_run_dir="${script_dir}/run"
+default_log_dir="${script_dir}/logs"
 binary="${CPA_MANAGER_PLUS_BIN:-"${script_dir}/${app_name}"}"
-run_dir="${CPA_MANAGER_PLUS_RUN_DIR:-"${script_dir}/run"}"
-log_dir="${CPA_MANAGER_PLUS_LOG_DIR:-"${script_dir}/logs"}"
+run_dir="${CPA_MANAGER_PLUS_RUN_DIR:-"${default_run_dir}"}"
+log_dir="${CPA_MANAGER_PLUS_LOG_DIR:-"${default_log_dir}"}"
 pid_file="${CPA_MANAGER_PLUS_PID_FILE:-"${run_dir}/${app_name}.pid"}"
 log_file="${CPA_MANAGER_PLUS_LOG_FILE:-"${log_dir}/${app_name}.log"}"
+manage_run_dir="false"
+manage_log_dir="false"
+
+if [ -z "${CPA_MANAGER_PLUS_RUN_DIR:-}" ]; then
+  manage_run_dir="true"
+fi
+if [ -z "${CPA_MANAGER_PLUS_LOG_DIR:-}" ]; then
+  manage_log_dir="true"
+fi
 
 record_format=""
 record_pid=""
@@ -255,8 +266,10 @@ prepare_private_file() {
   local parent_dir
 
   parent_dir="$(dirname "${file}")"
-  if [ "${parent_dir}" = "${run_dir}" ] || [ "${parent_dir}" = "${log_dir}" ]; then
-    ensure_private_dir "${parent_dir}" "true"
+  if [ "${parent_dir}" = "${run_dir}" ]; then
+    ensure_private_dir "${parent_dir}" "${manage_run_dir}"
+  elif [ "${parent_dir}" = "${log_dir}" ]; then
+    ensure_private_dir "${parent_dir}" "${manage_log_dir}"
   else
     ensure_private_dir "${parent_dir}" "false"
   fi
@@ -266,8 +279,8 @@ prepare_private_file() {
 }
 
 prepare_runtime_paths() {
-  ensure_private_dir "${run_dir}" "true"
-  ensure_private_dir "${log_dir}" "true"
+  ensure_private_dir "${run_dir}" "${manage_run_dir}"
+  ensure_private_dir "${log_dir}" "${manage_log_dir}"
   prepare_private_file "${log_file}"
 }
 
@@ -321,7 +334,7 @@ start_app() {
 
   prepare_runtime_paths
   if [ "$(dirname "${pid_file}")" = "${run_dir}" ]; then
-    ensure_private_dir "${run_dir}" "true"
+    ensure_private_dir "${run_dir}" "${manage_run_dir}"
   else
     ensure_private_dir "$(dirname "${pid_file}")" "false"
   fi
