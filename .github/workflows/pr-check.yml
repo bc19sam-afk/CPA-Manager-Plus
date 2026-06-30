@@ -57,6 +57,9 @@ jobs:
         env:
           VERSION: ci-demo
 
+      - name: Build docs site
+        run: npm run docs:build
+
   manager-server:
     name: Manager Server
     runs-on: ubuntu-latest
