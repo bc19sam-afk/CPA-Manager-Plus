@@ -361,6 +361,86 @@ describe('native control scripts', () => {
     }
   });
 
+  it('rejects symlinked Unix PID files on status and stop', () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+
+    const sleepBinary = findExecutable(['/bin/sleep', '/usr/bin/sleep']);
+    if (!sleepBinary) {
+      return;
+    }
+
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), 'cpamp-native-pid-link-'));
+    tempDirs.push(tempDir);
+
+    const pidFile = path.join(tempDir, 'run', 'manager.pid');
+    const linkPidFile = path.join(tempDir, 'linked.pid');
+    const logFile = path.join(tempDir, 'logs', 'manager.log');
+    const realEnv = {
+      ...process.env,
+      CPA_MANAGER_PLUS_BIN: sleepBinary,
+      CPA_MANAGER_PLUS_PID_FILE: pidFile,
+      CPA_MANAGER_PLUS_LOG_FILE: logFile,
+    };
+    const linkedEnv = {
+      ...realEnv,
+      CPA_MANAGER_PLUS_PID_FILE: linkPidFile,
+    };
+
+    try {
+      runControl(realEnv, ['start', '30']);
+      symlinkSync(pidFile, linkPidFile);
+
+      for (const command of ['status', 'stop']) {
+        const result = spawnSync('bash', [unixControlScript, command], {
+          env: linkedEnv,
+          encoding: 'utf8',
+        });
+
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain('symlinked runtime file');
+      }
+
+      expect(runControl(realEnv, ['status'])).toContain('is running with PID');
+      expect(runControl(realEnv, ['stop'])).toContain('stopped');
+    } finally {
+      spawnSync('bash', [unixControlScript, 'stop'], { env: realEnv, encoding: 'utf8' });
+    }
+  });
+
+  it('rejects unsafe Unix PID parent directories on status and stop', () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), 'cpamp-native-pid-parent-'));
+    tempDirs.push(tempDir);
+
+    const unsafeDir = path.join(tempDir, 'unsafe-run');
+    mkdirSync(unsafeDir, { recursive: true });
+    chmodSync(unsafeDir, 0o777);
+
+    const pidFile = path.join(unsafeDir, 'manager.pid');
+    writeFileSync(pidFile, `${process.pid}\n`);
+
+    const env = {
+      ...process.env,
+      CPA_MANAGER_PLUS_PID_FILE: pidFile,
+      CPA_MANAGER_PLUS_LOG_FILE: path.join(tempDir, 'logs', 'manager.log'),
+    };
+
+    for (const command of ['status', 'stop']) {
+      const result = spawnSync('bash', [unixControlScript, command], {
+        env,
+        encoding: 'utf8',
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('unsafe runtime directory');
+    }
+  });
+
   it('parses the Windows PowerShell control script', () => {
     if (process.platform !== 'win32') {
       return;
@@ -495,5 +575,87 @@ describe('native control scripts', () => {
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('unsafe runtime directory');
+  });
+
+  it('rejects reparse-point Windows PID files on status and stop', () => {
+    if (process.platform !== 'win32') {
+      return;
+    }
+
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), 'cpamp-native-win-pid-link-'));
+    tempDirs.push(tempDir);
+
+    const pidTargetDir = path.join(tempDir, 'pid-target');
+    const pidReparsePath = path.join(tempDir, 'manager.pid');
+    mkdirSync(pidTargetDir, { recursive: true });
+    runPowerShell([
+      '-Command',
+      `New-Item -ItemType Junction -Path ${psQuote(pidReparsePath)} -Target ${psQuote(pidTargetDir)} | Out-Null`,
+    ]);
+
+    const env = {
+      ...process.env,
+      CPA_MANAGER_PLUS_PID_FILE: pidReparsePath,
+    };
+
+    for (const command of ['status', 'stop']) {
+      const result = spawnSync(
+        windowsPowerShell(),
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', windowsControlScript, command],
+        {
+          env,
+          encoding: 'utf8',
+        },
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('reparse-point runtime file');
+    }
+  });
+
+  it('rejects unsafe Windows PID parent directories on status and stop', () => {
+    if (process.platform !== 'win32') {
+      return;
+    }
+
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), 'cpamp-native-win-pid-parent-'));
+    tempDirs.push(tempDir);
+
+    const unsafeDir = path.join(tempDir, 'unsafe-run');
+    mkdirSync(unsafeDir, { recursive: true });
+    const pidFile = path.join(unsafeDir, 'manager.pid');
+    writeFileSync(pidFile, `${process.pid}\r\n`);
+
+    runPowerShell([
+      '-Command',
+      [
+        `$path = ${psQuote(unsafeDir)}`,
+        '$item = Get-Item -LiteralPath $path -Force',
+        '$acl = [System.IO.Directory]::GetAccessControl($item.FullName)',
+        '$users = New-Object System.Security.Principal.SecurityIdentifier "S-1-5-32-545"',
+        '$rule = New-Object System.Security.AccessControl.FileSystemAccessRule($users, "Modify", "ContainerInherit, ObjectInherit", "None", "Allow")',
+        '$acl.AddAccessRule($rule)',
+        '[System.IO.Directory]::SetAccessControl($item.FullName, $acl)',
+      ].join('; '),
+    ]);
+
+    const env = {
+      ...process.env,
+      CPA_MANAGER_PLUS_PID_FILE: pidFile,
+    };
+
+    for (const command of ['status', 'stop']) {
+      const result = spawnSync(
+        windowsPowerShell(),
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', windowsControlScript, command],
+        {
+          env,
+          encoding: 'utf8',
+        },
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('unsafe runtime directory');
+    }
   });
 });

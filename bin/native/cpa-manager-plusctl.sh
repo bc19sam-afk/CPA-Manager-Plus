@@ -65,6 +65,9 @@ read_pid_record() {
     return 1
   fi
 
+  reject_unsafe_runtime_file "${pid_file}"
+  reject_unsafe_runtime_file_parent "${pid_file}"
+
   local line saw_metadata=0
   while IFS= read -r line || [ -n "${line}" ]; do
     case "${line}" in
@@ -321,6 +324,37 @@ reject_unsafe_runtime_file() {
   if [ -e "${file}" ] && [ ! -f "${file}" ]; then
     echo "Refusing to use non-regular runtime file: ${file}" >&2
     exit 1
+  fi
+}
+
+is_managed_runtime_dir() {
+  local dir="$1"
+
+  { [ "${dir}" = "${run_dir}" ] && [ "${manage_run_dir}" = "true" ]; } ||
+    { [ "${dir}" = "${log_dir}" ] && [ "${manage_log_dir}" = "true" ]; }
+}
+
+reject_unsafe_runtime_file_parent() {
+  local file="$1"
+  local parent_dir
+
+  parent_dir="$(dirname "${file}")"
+  if [ -z "${parent_dir}" ] || [ ! -e "${parent_dir}" ]; then
+    return 0
+  fi
+
+  if [ -L "${parent_dir}" ]; then
+    echo "Refusing to use symlinked runtime directory: ${parent_dir}" >&2
+    exit 1
+  fi
+
+  if [ ! -d "${parent_dir}" ]; then
+    echo "Refusing to use non-directory runtime path: ${parent_dir}" >&2
+    exit 1
+  fi
+
+  if ! is_managed_runtime_dir "${parent_dir}"; then
+    reject_unsafe_custom_dir "${parent_dir}"
   fi
 }
 

@@ -148,6 +148,18 @@ function Assert-SafeRuntimeFileTarget {
   }
 }
 
+function Assert-SafeRuntimeFileParent {
+  param([string]$Path)
+
+  $parent = Split-Path -Parent $Path
+  if (-not $parent -or -not (Test-Path -LiteralPath $parent)) {
+    return
+  }
+
+  $manageParent = Should-ManageExistingDirectory -Path $parent
+  Assert-SafeRuntimeDirectory -Path $parent -ManageExisting:$manageParent
+}
+
 function Set-PrivateAcl {
   param(
     [string]$Path,
@@ -294,6 +306,9 @@ function Read-PidRecord {
   if (-not (Test-Path -LiteralPath $PidFile)) {
     return $null
   }
+
+  Assert-SafeRuntimeFileTarget -Path $PidFile
+  Assert-SafeRuntimeFileParent -Path $PidFile
 
   $raw = (Get-Content -LiteralPath $PidFile -Raw).Trim()
   if (-not $raw) {
