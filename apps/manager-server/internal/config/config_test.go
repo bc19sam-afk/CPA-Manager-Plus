@@ -24,6 +24,9 @@ func TestLoadCreatesDefaultConfig(t *testing.T) {
 	if want := filepath.Join(dir, "data", "usage.sqlite"); cfg.DBPath != want {
 		t.Fatalf("DBPath = %q, want %q", cfg.DBPath, want)
 	}
+	if !cfg.DashboardHourlyRollupEnabled {
+		t.Fatal("DashboardHourlyRollupEnabled = false by default")
+	}
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -146,6 +149,7 @@ func TestLoadEnvOverridesConfig(t *testing.T) {
 	t.Setenv("CPA_MANAGEMENT_KEY", "env-secret")
 	t.Setenv("USAGE_BATCH_SIZE", "12")
 	t.Setenv("CPA_MANAGER_PPROF_ADDR", "[::1]:6061")
+	t.Setenv("USAGE_DASHBOARD_HOURLY_ROLLUP_ENABLED", "false")
 
 	cfg, err := Load()
 	if err != nil {
@@ -165,6 +169,9 @@ func TestLoadEnvOverridesConfig(t *testing.T) {
 	}
 	if cfg.PprofAddr != "[::1]:6061" {
 		t.Fatalf("PprofAddr = %q", cfg.PprofAddr)
+	}
+	if cfg.DashboardHourlyRollupEnabled {
+		t.Fatal("DashboardHourlyRollupEnabled = true, want false")
 	}
 }
 
@@ -211,6 +218,7 @@ func clearConfigEnv(t *testing.T) {
 		"USAGE_QUOTA_COOLDOWN_ENABLED",
 		"USAGE_ACCOUNT_ACTIONS_ENABLED",
 		"USAGE_ACCOUNT_ACTIONS_AUTO_DISABLE",
+		"USAGE_DASHBOARD_HOURLY_ROLLUP_ENABLED",
 		"PANEL_PATH",
 	} {
 		t.Setenv(key, "")
