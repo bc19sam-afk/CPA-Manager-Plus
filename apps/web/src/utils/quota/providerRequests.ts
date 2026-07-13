@@ -21,6 +21,7 @@ import type {
   XaiProductUsageSummary,
 } from '@/types';
 import { apiCallApi, getApiCallErrorMessage } from '@/services/api/apiCall';
+import { isRecord } from '@/utils/helpers';
 import {
   antigravitySubscriptionApi,
   type AntigravitySubscriptionSummary,
@@ -456,25 +457,154 @@ const resolveClaudePlanType = (profile: ClaudeProfileResponse | null): string | 
   return null;
 };
 
+const normalizeClaudeLimitToken = (value: unknown): string | null => {
+  const normalized = normalizeStringValue(value);
+  if (!normalized) return null;
+  return normalized
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+};
+
+const isClaudeWeeklyScopedLimit = (limit: Record<string, unknown>): boolean => {
+  const kind = normalizeClaudeLimitToken(limit.kind);
+  const group = normalizeClaudeLimitToken(limit.group);
+  if (group && group !== 'weekly') return false;
+  if (kind === 'weekly_scoped' || kind === 'weekly_model_scoped') return true;
+  return kind === 'model_scoped' && group === 'weekly';
+};
+
+const findClaudeModelDisplayName = (value: unknown, depth = 0): string | null => {
+  if (!isRecord(value)) return null;
+
+  const rawDisplayName = value.display_name ?? value.displayName;
+  if (typeof rawDisplayName === 'string') {
+    const direct = rawDisplayName.trim().replace(/\s+/g, ' ');
+    if (direct) return direct;
+  }
+  if (depth >= 1) return null;
+
+  for (const nested of Object.values(value)) {
+    const label = findClaudeModelDisplayName(nested, depth + 1);
+    if (label) return label;
+  }
+  return null;
+};
+
+const normalizeClaudeIdentityText = (value: string): string => {
+  try {
+    return value.normalize('NFKC');
+  } catch {
+    return value;
+  }
+};
+
+const encodeClaudeWindowIdPart = (value: string): string => {
+  try {
+    return encodeURIComponent(value);
+  } catch {
+    const codeUnits = Array.from({ length: value.length }, (_, index) =>
+      value.charCodeAt(index).toString(16).padStart(4, '0')
+    );
+    return `utf16-${codeUnits.join('-')}`;
+  }
+};
+
+type ClaudeScopedWeeklyWindowEntry = {
+  identityKey: string;
+  sortLabel: string;
+  window: ClaudeQuotaWindow;
+};
+
+const buildClaudeScopedWeeklyWindows = (payload: ClaudeUsagePayload): ClaudeQuotaWindow[] => {
+  if (!Array.isArray(payload.limits)) return [];
+
+  const windowsByModel = new Map<string, ClaudeScopedWeeklyWindowEntry>();
+  for (const rawLimit of payload.limits) {
+    try {
+      if (!isRecord(rawLimit) || !isClaudeWeeklyScopedLimit(rawLimit)) continue;
+      if (normalizeFlagValue(rawLimit.is_active ?? rawLimit.isActive) === false) continue;
+
+      const scope = isRecord(rawLimit.scope) ? rawLimit.scope : null;
+      const model = isRecord(scope?.model) ? scope.model : null;
+      if (!model) continue;
+      const label = findClaudeModelDisplayName(model);
+      if (!label) continue;
+
+      const rawPercent = normalizeNumberValue(rawLimit.percent);
+      const usedPercent = rawPercent !== null && rawPercent >= 0 ? rawPercent : null;
+      const rawResetAt =
+        rawLimit.resets_at ?? rawLimit.resetsAt ?? rawLimit.reset_at ?? rawLimit.resetAt;
+      const resetAt = typeof rawResetAt === 'string' ? rawResetAt.trim() : '';
+      const resetLabel = formatQuotaResetTime(resetAt || undefined);
+      if (usedPercent === null && resetLabel === '-') continue;
+
+      const rawModelId = model.id ?? model.model_id ?? model.modelId;
+      const modelId =
+        typeof rawModelId === 'string' && rawModelId.trim()
+          ? normalizeClaudeIdentityText(rawModelId.trim())
+          : null;
+      const labelKey = normalizeClaudeIdentityText(label).toLowerCase();
+      const identityKey = modelId ? `id:${modelId}` : `label:${labelKey}`;
+      if (windowsByModel.has(identityKey)) continue;
+
+      const idPart = modelId
+        ? `id-${encodeClaudeWindowIdPart(modelId)}`
+        : encodeClaudeWindowIdPart(labelKey);
+      windowsByModel.set(identityKey, {
+        identityKey,
+        sortLabel: labelKey,
+        window: {
+          id: `weekly-scoped-${idPart}`,
+          label,
+          usedPercent,
+          resetLabel,
+        },
+      });
+    } catch {
+      continue;
+    }
+  }
+
+  return [...windowsByModel.values()]
+    .sort((left, right) => {
+      if (left.sortLabel !== right.sortLabel) {
+        return left.sortLabel < right.sortLabel ? -1 : 1;
+      }
+      return left.identityKey < right.identityKey
+        ? -1
+        : left.identityKey > right.identityKey
+          ? 1
+          : 0;
+    })
+    .map(({ window }) => window);
+};
+
 const buildClaudeQuotaWindows = (
   payload: ClaudeUsagePayload,
   t: TFunction
 ): ClaudeQuotaWindow[] => {
   const windows: ClaudeQuotaWindow[] = [];
+  const scopedWeeklyWindows = buildClaudeScopedWeeklyWindows(payload);
 
   for (const { key, id, labelKey } of CLAUDE_USAGE_WINDOW_KEYS) {
     const window = payload[key as keyof ClaudeUsagePayload];
-    if (!window || typeof window !== 'object' || !('utilization' in window)) continue;
-    const typedWindow = window as { utilization: number; resets_at: string };
-    const usedPercent = normalizeNumberValue(typedWindow.utilization);
-    const resetLabel = formatQuotaResetTime(typedWindow.resets_at);
-    windows.push({
-      id,
-      label: t(labelKey),
-      labelKey,
-      usedPercent,
-      resetLabel,
-    });
+    if (window && typeof window === 'object' && 'utilization' in window) {
+      const typedWindow = window as { utilization: number; resets_at: string };
+      const usedPercent = normalizeNumberValue(typedWindow.utilization);
+      const resetLabel = formatQuotaResetTime(typedWindow.resets_at);
+      windows.push({
+        id,
+        label: t(labelKey),
+        labelKey,
+        usedPercent,
+        resetLabel,
+      });
+    }
+    if (key === 'seven_day') {
+      windows.push(...scopedWeeklyWindows);
+    }
   }
 
   return windows;

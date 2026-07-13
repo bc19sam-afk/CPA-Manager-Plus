@@ -259,6 +259,12 @@ describe('monitoringCenterPageModel account quota', () => {
           usedPercent: 40,
           resetLabel: '05/20 12:00',
         },
+        {
+          id: 'weekly-scoped-fable%205%20max',
+          label: 'Fable 5 Max',
+          usedPercent: 100,
+          resetLabel: '05/27 12:00',
+        },
       ],
       planType: 'plan_pro',
       extraUsage: {
@@ -281,6 +287,12 @@ describe('monitoringCenterPageModel account quota', () => {
           label: '5-hour limit',
           remainingPercent: 60,
           resetLabel: '05/20 12:00',
+        },
+        {
+          id: 'weekly-scoped-fable%205%20max',
+          label: 'Fable 5 Max',
+          remainingPercent: 0,
+          resetLabel: '05/27 12:00',
         },
       ],
     });
