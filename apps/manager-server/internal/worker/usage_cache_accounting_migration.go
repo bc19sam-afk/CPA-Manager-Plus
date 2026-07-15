@@ -80,7 +80,7 @@ func (w *UsageCacheAccountingMigrationWorker) run(ctx context.Context) {
 		}
 		progressLogEvery := int64(w.batchSize * 10)
 		if result.Processed > 0 && (result.Completed || progressLogEvery <= 0 || result.State.ProcessedRows%progressLogEvery == 0) {
-			log.Printf("usage cache accounting migration progress: processed=%d last_event_id=%d target_event_id=%d", result.State.ProcessedRows, result.State.LastEventID, result.State.TargetEventID)
+			log.Printf("usage cache accounting migration progress: processed=%d changed=%d last_event_id=%d target_event_id=%d", result.State.ProcessedRows, result.State.ChangedRows, result.State.LastEventID, result.State.TargetEventID)
 		}
 		if result.Completed {
 			w.complete(result.State)
@@ -94,7 +94,7 @@ func (w *UsageCacheAccountingMigrationWorker) run(ctx context.Context) {
 
 func (w *UsageCacheAccountingMigrationWorker) complete(state store.DataMigrationState) {
 	w.completion.Do(func() {
-		log.Printf("usage cache accounting migration completed: processed=%d", state.ProcessedRows)
+		log.Printf("usage cache accounting migration completed: processed=%d changed=%d", state.ProcessedRows, state.ChangedRows)
 		if w.onCompletion != nil {
 			w.onCompletion()
 		}

@@ -13,7 +13,7 @@ func TestUsageDataMigrationInitialStateMatchesExistingUsageData(t *testing.T) {
 		t.Fatalf("open empty sqlite: %v", err)
 	}
 	var status string
-	if err := db.QueryRow(`select status from usage_data_migrations where name = 'usage_cache_accounting_v1'`).Scan(&status); err != nil {
+	if err := db.QueryRow(`select status from usage_data_migrations where name = 'usage_cache_accounting_v2'`).Scan(&status); err != nil {
 		t.Fatalf("read empty migration state: %v", err)
 	}
 	if status != "completed" {
@@ -36,11 +36,66 @@ func TestUsageDataMigrationInitialStateMatchesExistingUsageData(t *testing.T) {
 		t.Fatalf("reopen legacy sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := db.QueryRow(`select status from usage_data_migrations where name = 'usage_cache_accounting_v1'`).Scan(&status); err != nil {
+	if err := db.QueryRow(`select status from usage_data_migrations where name = 'usage_cache_accounting_v2'`).Scan(&status); err != nil {
 		t.Fatalf("read legacy migration state: %v", err)
 	}
 	if status != "discovering" {
 		t.Fatalf("legacy migration status = %q, want discovering", status)
+	}
+	columns := migrationTableColumns(t, db, "usage_cache_accounting_v2_changes")
+	for _, column := range []string{
+		"event_id",
+		"cache_input_mode",
+		"normalized_uncached_input_tokens",
+		"normalized_total_input_tokens",
+		"normalized_cache_read_tokens",
+		"normalized_cache_creation_tokens",
+		"total_tokens",
+	} {
+		if !columns[column] {
+			t.Fatalf("staging columns = %#v, missing %s", columns, column)
+		}
+	}
+}
+
+func TestUsageDataMigrationUpgradeAddsChangedRowsAndPreservesV1(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "usage-data-migration-upgrade.sqlite")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	for _, statement := range []string{
+		`drop table usage_data_migrations`,
+		`create table usage_data_migrations (name text primary key, status text not null, last_event_id integer not null default 0, target_event_id integer not null default 0, processed_rows integer not null default 0, started_at_ms integer, updated_at_ms integer not null default 0, finished_at_ms integer, last_error text)`,
+		`insert into usage_data_migrations (name, status) values ('usage_cache_accounting_v1', 'completed')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			_ = db.Close()
+			t.Fatalf("setup legacy sqlite: %v", err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy sqlite: %v", err)
+	}
+
+	db, err = Open(path)
+	if err != nil {
+		t.Fatalf("upgrade sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	columns := migrationTableColumns(t, db, "usage_data_migrations")
+	if !columns["changed_rows"] {
+		t.Fatalf("migration columns = %#v, missing changed_rows", columns)
+	}
+	var v1Status, v2Status string
+	if err := db.QueryRow(`select status from usage_data_migrations where name = 'usage_cache_accounting_v1'`).Scan(&v1Status); err != nil {
+		t.Fatalf("read v1 status: %v", err)
+	}
+	if err := db.QueryRow(`select status from usage_data_migrations where name = 'usage_cache_accounting_v2'`).Scan(&v2Status); err != nil {
+		t.Fatalf("read v2 status: %v", err)
+	}
+	if v1Status != "completed" || v2Status != "completed" {
+		t.Fatalf("migration statuses = v1:%q v2:%q", v1Status, v2Status)
 	}
 }
 

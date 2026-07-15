@@ -147,6 +147,7 @@ func Migrate(db *sql.DB) error {
 			last_event_id integer not null default 0,
 			target_event_id integer not null default 0,
 			processed_rows integer not null default 0,
+			changed_rows integer not null default 0,
 			started_at_ms integer,
 			updated_at_ms integer not null default 0,
 			finished_at_ms integer,
@@ -157,6 +158,20 @@ func Migrate(db *sql.DB) error {
 		) select 'usage_cache_accounting_v1',
 			case when exists (select 1 from usage_events limit 1) then 'discovering' else 'completed' end,
 			0, 0, 0, 0`,
+		`insert or ignore into usage_data_migrations (
+			name, status, last_event_id, target_event_id, processed_rows, updated_at_ms
+		) select 'usage_cache_accounting_v2',
+			case when exists (select 1 from usage_events limit 1) then 'discovering' else 'completed' end,
+			0, 0, 0, 0`,
+		`create table if not exists usage_cache_accounting_v2_changes (
+			event_id integer primary key,
+			cache_input_mode text not null,
+			normalized_uncached_input_tokens integer not null,
+			normalized_total_input_tokens integer not null,
+			normalized_cache_read_tokens integer not null,
+			normalized_cache_creation_tokens integer not null,
+			total_tokens integer not null
+		)`,
 		`create table if not exists dead_letter_events (
 			id integer primary key autoincrement,
 			payload text not null,
@@ -315,6 +330,9 @@ func Migrate(db *sql.DB) error {
 			return err
 		}
 	}
+	if err := ensureUsageDataMigrationColumns(db); err != nil {
+		return err
+	}
 	if err := ensureUsageEventSnapshotColumns(db); err != nil {
 		return err
 	}
@@ -334,6 +352,34 @@ func Migrate(db *sql.DB) error {
 		return err
 	}
 	return ensureModelPriceColumns(db)
+}
+
+func ensureUsageDataMigrationColumns(db *sql.DB) error {
+	rows, err := db.Query(`pragma table_info(usage_data_migrations)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	existing := map[string]struct{}{}
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		existing[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, ok := existing["changed_rows"]; ok {
+		return nil
+	}
+	_, err = db.Exec(`alter table usage_data_migrations add column changed_rows integer not null default 0`)
+	return err
 }
 
 func ensureQuotaCooldownColumns(db *sql.DB) error {

@@ -28,9 +28,9 @@ func TestUsageCacheAccountingMigrationWorkerRunsBatchesBeforeCompletion(t *testi
 	}
 	if _, err := rawDB.Exec(`update usage_data_migrations set
 		status = 'discovering', last_event_id = 0, target_event_id = 0,
-		processed_rows = 0, started_at_ms = null, updated_at_ms = 0,
+		processed_rows = 0, changed_rows = 0, started_at_ms = null, updated_at_ms = 0,
 		finished_at_ms = null, last_error = null
-		where name = 'usage_cache_accounting_v1'`); err != nil {
+		where name = 'usage_cache_accounting_v2'`); err != nil {
 		t.Fatalf("reset migration state: %v", err)
 	}
 
@@ -52,7 +52,7 @@ func TestUsageCacheAccountingMigrationWorkerRunsBatchesBeforeCompletion(t *testi
 	if err != nil {
 		t.Fatalf("read migration state: %v", err)
 	}
-	if state.Status != "completed" || state.ProcessedRows != 2 || state.LastEventID != 2 {
+	if state.Status != "completed" || state.ProcessedRows != 2 || state.ChangedRows != 2 || state.LastEventID != 2 {
 		t.Fatalf("migration state = %#v", state)
 	}
 	var remaining int
